@@ -76,6 +76,8 @@ Preferred communication style: Simple, everyday language.
 
 **User Tracking**: `data/users.json` maintains player history with name changes, UIDs, and last seen timestamps. Enables `/whois` command functionality.
 
+**Daily Message Counter**: `data/message_counter.json` tracks daily message count with automatic reset at 12:00 AM Pakistani time (UTC+5). Structure: `{ count: number, date: "YYYY-MM-DD" }`. Counter increments when WebSocket messages containing `PY.MG` field are received.
+
 **Configuration Files**: Text-based lists (comma-separated or line-separated) for admins, spam words, banned patterns, exemptions, and loyal members. Simple format allows manual editing if needed.
 
 ### Security Considerations
