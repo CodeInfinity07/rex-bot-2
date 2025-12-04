@@ -38,6 +38,14 @@ interface ClubInfoResponse {
   };
 }
 
+interface MessageCountResponse {
+  success: boolean;
+  data: {
+    count: number;
+    date: string;
+  };
+}
+
 export default function Overview() {
   const { data: membersData } = useQuery<MembersResponse>({
     queryKey: ["/api/jack/members"],
@@ -55,7 +63,13 @@ export default function Overview() {
     queryKey: ["/api/jack/club-info"],
   });
 
+  const { data: messageCount } = useQuery<MessageCountResponse>({
+    queryKey: ["/api/jack/message-count"],
+    refetchInterval: 5000,
+  });
+
   const totalMembers = membersData?.data?.total || 0;
+  const messagesToday = messageCount?.data?.count || 0;
   const spamWordCount = spamWordsData?.data?.length || 0;
 
   return (
@@ -83,7 +97,7 @@ export default function Overview() {
             <Activity className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
+            <div className="text-2xl font-bold" data-testid="stat-messages-today">{messagesToday}</div>
             <p className="text-xs text-muted-foreground">Bot activity</p>
           </CardContent>
         </Card>

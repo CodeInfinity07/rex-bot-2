@@ -27,6 +27,85 @@ const SPAM_FILE = path.join(DATA_DIR, 'spam.txt');
 const ADMINS_FILE = path.join(DATA_DIR, 'admins.txt');
 const BANNED_PATTERNS_FILE = path.join(DATA_DIR, 'banned_patterns.txt');
 const BOT_CONFIG_FILE = path.join(DATA_DIR, 'bot_configuration.json');
+const MESSAGE_COUNTER_FILE = path.join(DATA_DIR, 'message_counter.json');
+
+// Daily message counter state
+interface MessageCounterData {
+  count: number;
+  date: string; // YYYY-MM-DD in Pakistani time
+}
+
+let messageCounter: MessageCounterData = {
+  count: 0,
+  date: ''
+};
+
+// Get current date in Pakistani time (UTC+5)
+function getPakistaniDate(): string {
+  const now = new Date();
+  const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+  return pakistaniTime.toISOString().split('T')[0];
+}
+
+// Load message counter from file
+async function loadMessageCounter(): Promise<void> {
+  try {
+    const data = await fs.readFile(MESSAGE_COUNTER_FILE, 'utf8');
+    const parsed = JSON.parse(data);
+    messageCounter = parsed;
+    
+    // Check if we need to reset (new day in Pakistani time)
+    const currentDate = getPakistaniDate();
+    if (messageCounter.date !== currentDate) {
+      messageCounter = { count: 0, date: currentDate };
+      await saveMessageCounter();
+      logger.info(`📊 Message counter reset for new day: ${currentDate}`);
+    } else {
+      logger.info(`📊 Message counter loaded: ${messageCounter.count} messages today`);
+    }
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      messageCounter = { count: 0, date: getPakistaniDate() };
+      await saveMessageCounter();
+      logger.info('📊 Message counter initialized');
+    }
+  }
+}
+
+// Save message counter to file
+async function saveMessageCounter(): Promise<void> {
+  try {
+    await fs.writeFile(MESSAGE_COUNTER_FILE, JSON.stringify(messageCounter, null, 2));
+  } catch (error) {
+    logger.error('Error saving message counter');
+  }
+}
+
+// Increment message counter (with date check)
+async function incrementMessageCounter(): Promise<void> {
+  const currentDate = getPakistaniDate();
+  
+  // Reset if it's a new day
+  if (messageCounter.date !== currentDate) {
+    messageCounter = { count: 0, date: currentDate };
+    logger.info(`📊 Message counter reset for new day: ${currentDate}`);
+  }
+  
+  messageCounter.count++;
+  await saveMessageCounter();
+}
+
+// Get current message count
+function getMessageCount(): MessageCounterData {
+  const currentDate = getPakistaniDate();
+  
+  // Return 0 if it's a new day (will be reset on next increment)
+  if (messageCounter.date !== currentDate) {
+    return { count: 0, date: currentDate };
+  }
+  
+  return messageCounter;
+}
 
 // Bot state
 let botState = {
@@ -464,6 +543,11 @@ async function handleMessage(data: string) {
     const jsonMessage = JSON.parse(data);
     botState.stats.messagesProcessed++;
 
+    // Increment daily message counter when MG (message) is received
+    if (jsonMessage?.PY?.MG !== undefined) {
+      await incrementMessageCounter();
+    }
+
     // Handle member list
     if (jsonMessage?.PY?.ML !== undefined) {
       await saveClubMembers(jsonMessage.PY.ML);
@@ -774,6 +858,7 @@ async function initializeBot() {
   try {
     await loadAllConfigurations();
     await loadSavedData(USERS_FILE);
+    await loadMessageCounter();
     logger.info('✅ Bot initialized successfully');
     
     // Auto-connect if credentials available
@@ -1163,6 +1248,22 @@ export function setupBotIntegration(app: Express) {
         bannedPatterns: botConfig.bannedPatterns.length
       }
     });
+  });
+
+  // Get daily message count
+  app.get('/api/jack/message-count', (req, res) => {
+    try {
+      const data = getMessageCount();
+      res.json({
+        success: true,
+        data: {
+          count: data.count,
+          date: data.date
+        }
+      });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to get message count' });
+    }
   });
 
   // Send message endpoint
