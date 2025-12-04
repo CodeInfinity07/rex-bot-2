@@ -1,0 +1,13 @@
+{
+  "allowAvatars": false,
+  "banLevel": 1,
+  "allowGuestIds": false,
+  "punishments": {
+    "bannedPatterns": "ban",
+    "lowLevel": "ban",
+    "noGuestId": "ban",
+    "noAvatar": "kick",
+    "spamWords": "kick"
+  },
+  "updatedAt": "2025-10-31T10:27:14.722Z"
+}
