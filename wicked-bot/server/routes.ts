@@ -110,6 +110,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Update BOT_UID environment variable
+  app.post('/api/jack/update-bot-uid', async (req, res) => {
+    try {
+      const { botUid } = req.body;
+      
+      if (!botUid || typeof botUid !== 'string' || botUid.trim() === '') {
+        return res.json({ success: false, message: 'Bot UID is required' });
+      }
+
+      // Update the environment variable in memory
+      process.env.BOT_UID = botUid.trim();
+      
+      console.log(`[BOT] Bot UID updated to: ${botUid.trim()}`);
+      
+      res.json({ 
+        success: true, 
+        message: 'Bot UID updated successfully',
+        data: { botUid: botUid.trim() }
+      });
+    } catch (error: any) {
+      console.error('Error updating Bot UID:', error);
+      res.json({ success: false, message: error.message || 'Failed to update Bot UID' });
+    }
+  });
+
   // ====================
   // MEMBER MANAGEMENT ENDPOINTS
   // ====================

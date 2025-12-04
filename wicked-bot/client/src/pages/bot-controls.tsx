@@ -33,13 +33,23 @@ interface AuthStatusResponse {
   authMessage?: any;
 }
 
-type DialogType = 'restart' | 'clearCredentials' | 'updateToken' | 'updateOpenAI' | null;
+interface ClubInfoResponse {
+  success: boolean;
+  data: {
+    clubName: string;
+    clubCode: string;
+    botUid: string;
+  };
+}
+
+type DialogType = 'restart' | 'clearCredentials' | 'updateToken' | 'updateOpenAI' | 'updateBotUid' | null;
 
 export default function BotControls() {
   const { toast } = useToast();
   const [authData, setAuthData] = useState("");
   const [tokenContent, setTokenContent] = useState("");
   const [openAIKey, setOpenAIKey] = useState("");
+  const [botUidInput, setBotUidInput] = useState("");
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [dialogType, setDialogType] = useState<DialogType>(null);
   const [password, setPassword] = useState("");
@@ -55,6 +65,11 @@ export default function BotControls() {
   const { data: authStatus } = useQuery<AuthStatusResponse>({
     queryKey: ["/api/jack/auth-status"],
     refetchInterval: 2000,
+  });
+
+  // Query for club info (including BOT_UID)
+  const { data: clubInfo } = useQuery<ClubInfoResponse>({
+    queryKey: ["/api/jack/club-info"],
   });
 
   // Restart bot mutation
@@ -142,6 +157,30 @@ export default function BotControls() {
       toast({
         title: "Error",
         description: error.message || "Failed to update OpenAI key",
+        variant: "destructive",
+      });
+      closePasswordDialog();
+    },
+  });
+
+  // Update Bot UID mutation
+  const updateBotUidMutation = useMutation({
+    mutationFn: async (botUid: string) => {
+      return await apiRequest("POST", "/api/jack/update-bot-uid", { botUid });
+    },
+    onSuccess: () => {
+      setBotUidInput("");
+      queryClient.invalidateQueries({ queryKey: ["/api/jack/club-info"] });
+      toast({
+        title: "Bot UID Updated",
+        description: "Bot UID has been updated successfully.",
+      });
+      closePasswordDialog();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update Bot UID",
         variant: "destructive",
       });
       closePasswordDialog();
@@ -287,6 +326,17 @@ export default function BotControls() {
         }
         updateOpenAIKeyMutation.mutate(openAIKey.trim());
         break;
+      case 'updateBotUid':
+        if (!botUidInput.trim()) {
+          toast({
+            title: "Missing Bot UID",
+            description: "Please enter the Bot UID",
+            variant: "destructive",
+          });
+          return;
+        }
+        updateBotUidMutation.mutate(botUidInput.trim());
+        break;
     }
   };
 
@@ -301,6 +351,8 @@ export default function BotControls() {
         return 'Update Token';
       case 'updateOpenAI':
         return 'Update OpenAI API Key';
+      case 'updateBotUid':
+        return 'Update Bot UID';
       default:
         return 'Authentication Required';
     }
@@ -317,6 +369,8 @@ export default function BotControls() {
         return 'Please enter the developer password to update the token.txt file.';
       case 'updateOpenAI':
         return 'Please enter the developer password to update the OpenAI API key.';
+      case 'updateBotUid':
+        return 'Please enter the developer password to update the Bot UID.';
       default:
         return 'Please enter the developer password.';
     }
@@ -326,7 +380,8 @@ export default function BotControls() {
   const isPending = restartMutation.isPending || 
                     clearCredentialsMutation.isPending || 
                     updateTokenMutation.isPending || 
-                    updateOpenAIKeyMutation.isPending;
+                    updateOpenAIKeyMutation.isPending ||
+                    updateBotUidMutation.isPending;
 
   // Loading state
   if (isLoading) {
@@ -529,6 +584,24 @@ export default function BotControls() {
                   </p>
                 </div>
               )}
+              {dialogType === 'updateBotUid' && (
+                <div className="space-y-2">
+                  <Label htmlFor="bot-uid">Bot UID</Label>
+                  <Input
+                    id="bot-uid"
+                    type="text"
+                    placeholder="Enter Bot UID..."
+                    value={botUidInput}
+                    onChange={(e) => setBotUidInput(e.target.value)}
+                    disabled={isPending}
+                    className="font-mono text-sm"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The unique identifier for the bot
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="developer-password">Developer Password</Label>
                 <Input
@@ -663,6 +736,41 @@ export default function BotControls() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Bot UID Card */}
+      <Card className="border-purple-500">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bot className="h-5 w-5 text-purple-600" />
+            <CardTitle>Bot Identity</CardTitle>
+          </div>
+          <CardDescription>View and manage the bot's unique identifier</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+              <div>
+                <p className="text-sm text-muted-foreground font-medium">Current Bot UID</p>
+                <p className="font-mono text-lg font-semibold" data-testid="text-bot-uid">
+                  {clubInfo?.data?.botUid || 'Not Configured'}
+                </p>
+              </div>
+              <Button
+                onClick={() => openPasswordDialog('updateBotUid')}
+                disabled={isPending}
+                variant="outline"
+                className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+              >
+                <Bot className="mr-2 h-4 w-4" />
+                Update UID
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The Bot UID is used to identify the bot when connecting to the game server. Changing this will require a restart.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Credentials Management Card */}
       <Card className="border-orange-500">
