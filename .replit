@@ -34,10 +34,17 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 44365
+localPort = 35059
 externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
 run = ["bash", "-c", "cd wicked-bot && npm start"]
 build = ["bash", "-c", "cd wicked-bot && npm run build"]
+
+[userenv]
+
+[userenv.shared]
+CLUB_CODE = "3029915"
+CLUB_NAME = "RexSquad"
+BOT_UID = "67ed448c87c13d000172aa9c"

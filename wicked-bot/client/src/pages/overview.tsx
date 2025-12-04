@@ -29,6 +29,15 @@ interface BotStatusResponse {
   };
 }
 
+interface ClubInfoResponse {
+  success: boolean;
+  data: {
+    clubName: string;
+    clubCode: string;
+    botUid: string;
+  };
+}
+
 export default function Overview() {
   const { data: membersData } = useQuery<MembersResponse>({
     queryKey: ["/api/jack/members"],
@@ -40,6 +49,10 @@ export default function Overview() {
 
   const { data: botStatus } = useQuery<BotStatusResponse>({
     queryKey: ["/api/jack/status"],
+  });
+
+  const { data: clubInfo } = useQuery<ClubInfoResponse>({
+    queryKey: ["/api/jack/club-info"],
   });
 
   const totalMembers = membersData?.data?.total || 0;
@@ -108,11 +121,15 @@ export default function Overview() {
           <CardContent className="space-y-2">
             <div>
               <p className="text-sm text-muted-foreground">Club Name</p>
-              <p className="font-semibold" data-testid="text-club-name">TRIAL</p>
+              <p className="font-semibold" data-testid="text-club-name">
+                {clubInfo?.data?.clubName || 'Loading...'}
+              </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Club Code</p>
-              <p className="font-semibold" data-testid="text-club-code">1834714</p>
+              <p className="font-semibold" data-testid="text-club-code">
+                {clubInfo?.data?.clubCode || 'Loading...'}
+              </p>
             </div>
           </CardContent>
         </Card>

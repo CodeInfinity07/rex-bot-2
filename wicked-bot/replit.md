@@ -8,7 +8,17 @@ RexSquad Bot Manager is a comprehensive web-based dashboard for managing a chat 
 
 Preferred communication style: Simple, everyday language.
 
-## Recent Updates (October 5, 2025)
+## Recent Updates (December 4, 2025)
+
+### Club Information from Environment Variables
+- **Dynamic Club Info**: Club Name and Club Code are now loaded from environment variables
+- **API Endpoint**: `/api/jack/club-info` returns club configuration from env vars
+- **Required Environment Variables**:
+  - `CLUB_NAME`: The name of the club (displayed on dashboard)
+  - `CLUB_CODE`: The club's unique code (displayed on dashboard)
+  - `BOT_UID`: The bot's unique identifier
+
+## Previous Updates (October 5, 2025)
 
 ### ✅ Complete API Migration to `/api/jack/*` Pattern
 - **Unified API Structure**: All frontend pages now exclusively use `/api/jack/*` endpoints

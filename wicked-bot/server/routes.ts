@@ -95,6 +95,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupBotIntegration(app);
 
   // ====================
+  // CLUB INFO ENDPOINT
+  // ====================
+  
+  // Get club information from environment variables
+  app.get('/api/jack/club-info', (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        clubName: process.env.CLUB_NAME || 'Not Configured',
+        clubCode: process.env.CLUB_CODE || 'Not Configured',
+        botUid: process.env.BOT_UID || 'Not Configured'
+      }
+    });
+  });
+
+  // ====================
   // MEMBER MANAGEMENT ENDPOINTS
   // ====================
 
