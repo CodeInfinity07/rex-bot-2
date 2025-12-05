@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Search, Users, TrendingUp, TrendingDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Trash2, Search, Users, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -13,6 +13,13 @@ interface Member {
   UID: string;
   NM: string;
   LVL: number;
+  timeTracking?: {
+    totalSeconds: number;
+    weeklySeconds: number;
+    monthlySeconds: number;
+    lastWeekReset: string;
+    lastMonthReset: string;
+  };
 }
 
 interface MembersResponse {
@@ -162,6 +169,16 @@ export default function Members() {
       .map((n) => n[0])
       .join("")
       .toUpperCase();
+  };
+
+  const formatHours = (seconds: number | undefined): string => {
+    if (!seconds) return "0h";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
   };
 
   const renderPageNumbers = () => {
@@ -389,12 +406,25 @@ export default function Members() {
                       <h3 className="font-semibold" data-testid={`text-member-name-${member.UID}`}>
                         {member.NM}
                       </h3>
-                      <Badge
-                        variant={member.LVL >= 10 ? "default" : "secondary"}
-                        data-testid={`badge-level-${member.UID}`}
-                      >
-                        Level {member.LVL}
-                      </Badge>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge
+                          variant={member.LVL >= 10 ? "default" : "secondary"}
+                          data-testid={`badge-level-${member.UID}`}
+                        >
+                          Level {member.LVL}
+                        </Badge>
+                        {member.timeTracking && (
+                          <>
+                            <Badge variant="outline" className="text-xs">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Week: {formatHours(member.timeTracking.weeklySeconds)}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              Month: {formatHours(member.timeTracking.monthlySeconds)}
+                            </Badge>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <Button

@@ -279,6 +279,149 @@ let pendingRemovals = [];
 let pendingBans = [];
 let pendingKicks = [];
 
+// Session tracking - tracks when users join the club
+const activeSessions = new Map();
+
+// Get current date in Pakistani time (UTC+5)
+function getPakistaniDate() {
+    const now = new Date();
+    const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+    return pakistaniTime.toISOString().split('T')[0];
+}
+
+// Get current week number (ISO week) in Pakistani time
+function getCurrentWeek() {
+    const now = new Date();
+    const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+    const startOfYear = new Date(pakistaniTime.getFullYear(), 0, 1);
+    const days = Math.floor((pakistaniTime.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+    const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+    return `${pakistaniTime.getFullYear()}-W${weekNumber.toString().padStart(2, '0')}`;
+}
+
+// Get current month in Pakistani time
+function getCurrentMonth() {
+    const now = new Date();
+    const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+    return `${pakistaniTime.getFullYear()}-${(pakistaniTime.getMonth() + 1).toString().padStart(2, '0')}`;
+}
+
+// Format seconds to human readable duration
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+        return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${secs}s`;
+    }
+    return `${secs}s`;
+}
+
+// Handle user joining the club
+function handleUserJoin(uid) {
+    activeSessions.set(uid, Date.now());
+    logger.info(`👋 User joined, tracking session: ${uid.substring(0, 16)}...`);
+}
+
+// Handle user leaving the club and update their time
+async function handleUserLeave(uid) {
+    const joinTime = activeSessions.get(uid);
+    if (!joinTime) {
+        logger.warn(`⚠️ No join time found for user: ${uid.substring(0, 16)}...`);
+        return;
+    }
+
+    const sessionDuration = Math.floor((Date.now() - joinTime) / 1000);
+    activeSessions.delete(uid);
+
+    await updateMemberTime(uid, sessionDuration);
+    logger.info(`👋 User left after ${formatDuration(sessionDuration)}: ${uid.substring(0, 16)}...`);
+}
+
+// Update member's time tracking data
+async function updateMemberTime(uid, sessionSeconds) {
+    try {
+        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+        const members = JSON.parse(data);
+        
+        const memberIndex = members.findIndex(m => m.UID === uid);
+        if (memberIndex === -1) {
+            logger.warn(`⚠️ Member not found for time update: ${uid.substring(0, 16)}...`);
+            return;
+        }
+
+        const member = members[memberIndex];
+        const currentWeek = getCurrentWeek();
+        const currentMonth = getCurrentMonth();
+
+        // Initialize time tracking if not exists
+        if (!member.timeTracking) {
+            member.timeTracking = {
+                totalSeconds: 0,
+                weeklySeconds: 0,
+                monthlySeconds: 0,
+                lastWeekReset: currentWeek,
+                lastMonthReset: currentMonth
+            };
+        }
+
+        // Reset weekly if new week
+        if (member.timeTracking.lastWeekReset !== currentWeek) {
+            member.timeTracking.weeklySeconds = 0;
+            member.timeTracking.lastWeekReset = currentWeek;
+        }
+
+        // Reset monthly if new month
+        if (member.timeTracking.lastMonthReset !== currentMonth) {
+            member.timeTracking.monthlySeconds = 0;
+            member.timeTracking.lastMonthReset = currentMonth;
+        }
+
+        // Add session time
+        member.timeTracking.totalSeconds += sessionSeconds;
+        member.timeTracking.weeklySeconds += sessionSeconds;
+        member.timeTracking.monthlySeconds += sessionSeconds;
+
+        members[memberIndex] = member;
+        await fs.writeFile(MEMBERS_FILE, JSON.stringify(members, null, 2));
+        
+        logger.info(`⏱️ Updated time for ${member.NM}: +${formatDuration(sessionSeconds)} (Weekly: ${formatDuration(member.timeTracking.weeklySeconds)}, Monthly: ${formatDuration(member.timeTracking.monthlySeconds)})`);
+    } catch (error) {
+        logger.error('Error updating member time: ' + error.message);
+    }
+}
+
+// Get member time statistics
+function getMemberTimeStats(member) {
+    const currentWeek = getCurrentWeek();
+    const currentMonth = getCurrentMonth();
+    
+    if (!member.timeTracking) {
+        return { weeklyHours: 0, monthlyHours: 0, totalHours: 0 };
+    }
+
+    let weeklySeconds = member.timeTracking.weeklySeconds || 0;
+    let monthlySeconds = member.timeTracking.monthlySeconds || 0;
+    const totalSeconds = member.timeTracking.totalSeconds || 0;
+
+    // Check if we need to reset (for display purposes)
+    if (member.timeTracking.lastWeekReset !== currentWeek) {
+        weeklySeconds = 0;
+    }
+    if (member.timeTracking.lastMonthReset !== currentMonth) {
+        monthlySeconds = 0;
+    }
+
+    return {
+        weeklyHours: Math.round((weeklySeconds / 3600) * 100) / 100,
+        monthlyHours: Math.round((monthlySeconds / 3600) * 100) / 100,
+        totalHours: Math.round((totalSeconds / 3600) * 100) / 100
+    };
+}
+
 let openai = new OpenAI({
     apiKey: process.env.OPENAI
 });
@@ -1030,6 +1173,71 @@ app.get('/api/jack/members', async (req, res) => {
                 message: 'Failed to load members data'
             });
         }
+    }
+});
+
+// Get member time statistics
+app.get('/api/jack/member-time/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+        const members = JSON.parse(data);
+        
+        const member = members.find(m => m.UID === uid);
+        if (!member) {
+            return res.json({
+                success: false,
+                message: 'Member not found'
+            });
+        }
+
+        const timeStats = getMemberTimeStats(member);
+        
+        res.json({
+            success: true,
+            data: {
+                uid: member.UID,
+                name: member.NM,
+                weeklyHours: timeStats.weeklyHours,
+                monthlyHours: timeStats.monthlyHours,
+                totalHours: timeStats.totalHours,
+                timeTracking: member.timeTracking || null
+            }
+        });
+    } catch (error) {
+        logger.error('Error getting member time:', error.message);
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Get all members with time statistics
+app.get('/api/jack/members-time', async (req, res) => {
+    try {
+        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+        const members = JSON.parse(data);
+        
+        const membersWithTime = members.map(member => {
+            const timeStats = getMemberTimeStats(member);
+            return {
+                uid: member.UID,
+                name: member.NM,
+                level: member.LVL,
+                weeklyHours: timeStats.weeklyHours,
+                monthlyHours: timeStats.monthlyHours,
+                totalHours: timeStats.totalHours
+            };
+        });
+
+        // Sort by monthly hours (descending)
+        membersWithTime.sort((a, b) => b.monthlyHours - a.monthlyHours);
+        
+        res.json({
+            success: true,
+            data: membersWithTime
+        });
+    } catch (error) {
+        logger.error('Error getting members time:', error.message);
+        res.json({ success: false, message: error.message });
     }
 });
 
@@ -2054,6 +2262,16 @@ async function connectWebSocket() {
 
                     if (jsonMessage?.PY?.hasOwnProperty('ML')) {
                         saveClubMembers(jsonMessage);
+                    }
+
+                    // Handle user join event (PU: 'UJ')
+                    if (jsonMessage?.RH === "CBC" && jsonMessage?.PU === "UJ" && jsonMessage?.PY?.UID) {
+                        handleUserJoin(jsonMessage.PY.UID);
+                    }
+
+                    // Handle user leave event (PU: 'UL')
+                    if (jsonMessage?.RH === "CBC" && jsonMessage?.PU === "UL" && jsonMessage?.PY?.UID) {
+                        await handleUserLeave(jsonMessage.PY.UID);
                     }
 
                     if (jsonMessage?.PY?.hasOwnProperty('ER') &&
