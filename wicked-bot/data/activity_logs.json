@@ -1,0 +1,12 @@
+[
+  {
+    "id": "b013b30c-8ba7-47fd-b870-b313d37e446c",
+    "userId": "owner_rex",
+    "userRole": "owner",
+    "action": "LOGIN",
+    "details": {
+      "message": "Owner logged in"
+    },
+    "timestamp": "2025-12-05T10:44:33.159Z"
+  }
+]

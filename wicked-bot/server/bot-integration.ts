@@ -1,4 +1,4 @@
-import type { Express } from 'express';
+import type { Express, Request, Response, NextFunction } from 'express';
 import { promises as fs } from 'fs';
 import * as http from 'http';
 import * as crypto from 'crypto';
@@ -7,9 +7,118 @@ import axios from 'axios';
 import { OpenAI } from 'openai';
 import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
+import bcrypt from 'bcryptjs';
 
 // Load environment variables
 dotenv.config();
+
+// Auth configuration
+const OWNER_ID = process.env.OWNER_ID;
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
+const MODERATORS_FILE = path.join(process.cwd(), 'data', 'moderators.json');
+const ACTIVITY_LOGS_FILE = path.join(process.cwd(), 'data', 'activity_logs.json');
+
+// In-memory session store
+const sessions = new Map<string, { userId: string; role: string; loginTime: string }>();
+
+// Generate session token
+function generateSessionToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Load moderators from file
+async function loadModerators(): Promise<any[]> {
+  try {
+    const data = await fs.readFile(MODERATORS_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      await fs.writeFile(MODERATORS_FILE, '[]', 'utf8');
+      return [];
+    }
+    return [];
+  }
+}
+
+// Save moderators to file
+async function saveModerators(moderators: any[]): Promise<void> {
+  await fs.writeFile(MODERATORS_FILE, JSON.stringify(moderators, null, 2), 'utf8');
+}
+
+// Load activity logs from file
+async function loadActivityLogs(): Promise<any[]> {
+  try {
+    const data = await fs.readFile(ACTIVITY_LOGS_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      await fs.writeFile(ACTIVITY_LOGS_FILE, '[]', 'utf8');
+      return [];
+    }
+    return [];
+  }
+}
+
+// Save activity logs to file
+async function saveActivityLogs(logs: any[]): Promise<void> {
+  await fs.writeFile(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8');
+}
+
+// Log activity
+async function logActivity(userId: string, userRole: string, action: string, details: Record<string, unknown> = {}): Promise<void> {
+  try {
+    const logs = await loadActivityLogs();
+    logs.unshift({
+      id: crypto.randomUUID(),
+      userId,
+      userRole,
+      action,
+      details,
+      timestamp: new Date().toISOString()
+    });
+    // Keep only last 500 logs
+    if (logs.length > 500) {
+      logs.length = 500;
+    }
+    await saveActivityLogs(logs);
+  } catch (error) {
+    logger.error('Error logging activity');
+  }
+}
+
+// Extend Express Request type
+interface AuthRequest extends Request {
+  user?: { userId: string; role: string };
+}
+
+// Auth middleware
+function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ success: false, message: 'No token provided' });
+    return;
+  }
+  
+  const token = authHeader.substring(7);
+  const session = sessions.get(token);
+  
+  if (!session) {
+    res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    return;
+  }
+  
+  req.user = session;
+  next();
+}
+
+// Owner only middleware
+function ownerOnly(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (req.user?.role !== 'owner') {
+    res.status(403).json({ success: false, message: 'Owner access required' });
+    return;
+  }
+  next();
+}
 
 // Configuration
 const club_code = process.env.CLUB_CODE || 'default';
@@ -1084,6 +1193,220 @@ async function initializeBot() {
 
 export function setupBotIntegration(app: Express) {
   
+  // ====================
+  // AUTHENTICATION ENDPOINTS
+  // ====================
+
+  // Login endpoint
+  app.post('/api/jack/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ success: false, message: 'Username and password are required' });
+      }
+      
+      // Check if owner
+      if (username === OWNER_ID && password === OWNER_PASSWORD) {
+        const token = generateSessionToken();
+        sessions.set(token, {
+          userId: username,
+          role: 'owner',
+          loginTime: new Date().toISOString()
+        });
+        
+        await logActivity(username, 'owner', 'LOGIN', { message: 'Owner logged in' });
+        
+        return res.json({
+          success: true,
+          data: {
+            token,
+            user: { id: username, role: 'owner' }
+          }
+        });
+      }
+      
+      // Check if moderator
+      const moderators = await loadModerators();
+      const moderator = moderators.find(m => m.username === username);
+      
+      if (moderator) {
+        // Verify password with bcrypt (handles both hashed and legacy plaintext)
+        const isValidPassword = moderator.passwordHash 
+          ? await bcrypt.compare(password, moderator.passwordHash)
+          : moderator.password === password;
+        
+        if (!isValidPassword) {
+          return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+        
+        const token = generateSessionToken();
+        sessions.set(token, {
+          userId: username,
+          role: 'moderator',
+          loginTime: new Date().toISOString()
+        });
+        
+        await logActivity(username, 'moderator', 'LOGIN', { message: 'Moderator logged in' });
+        
+        return res.json({
+          success: true,
+          data: {
+            token,
+            user: { id: username, role: 'moderator' }
+          }
+        });
+      }
+      
+      res.status(401).json({ success: false, message: 'Invalid credentials' });
+    } catch (error) {
+      logger.error('Login error');
+      res.status(500).json({ success: false, message: 'Login failed' });
+    }
+  });
+
+  // Logout endpoint
+  app.post('/api/jack/logout', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader) {
+        const token = authHeader.substring(7);
+        sessions.delete(token);
+      }
+      
+      if (req.user) {
+        await logActivity(req.user.userId, req.user.role, 'LOGOUT', { message: 'User logged out' });
+      }
+      
+      res.json({ success: true, message: 'Logged out successfully' });
+    } catch (error) {
+      res.json({ success: false, message: 'Logout failed' });
+    }
+  });
+
+  // Session check endpoint
+  app.get('/api/jack/session', authMiddleware, (req: AuthRequest, res) => {
+    res.json({
+      success: true,
+      data: {
+        user: { id: req.user?.userId, role: req.user?.role }
+      }
+    });
+  });
+
+  // List moderators (owner only)
+  app.get('/api/jack/moderators', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
+    try {
+      const moderators = await loadModerators();
+      // Don't send passwords
+      const safeModerators = moderators.map(m => ({
+        id: m.id,
+        username: m.username,
+        createdAt: m.createdAt
+      }));
+      res.json({ success: true, data: safeModerators });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to load moderators' });
+    }
+  });
+
+  // Create moderator (owner only)
+  app.post('/api/jack/moderators', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.json({ success: false, message: 'Username and password are required' });
+      }
+      
+      if (password.length < 4) {
+        return res.json({ success: false, message: 'Password must be at least 4 characters' });
+      }
+      
+      if (username === OWNER_ID) {
+        return res.json({ success: false, message: 'Cannot use owner username' });
+      }
+      
+      const moderators = await loadModerators();
+      
+      if (moderators.find(m => m.username === username)) {
+        return res.json({ success: false, message: 'Username already exists' });
+      }
+      
+      // Hash password with bcrypt
+      const passwordHash = await bcrypt.hash(password, 10);
+      
+      const newModerator = {
+        id: crypto.randomUUID(),
+        username,
+        passwordHash,
+        createdAt: new Date().toISOString()
+      };
+      
+      moderators.push(newModerator);
+      await saveModerators(moderators);
+      
+      await logActivity(req.user!.userId, 'owner', 'CREATE_MODERATOR', { 
+        moderatorUsername: username 
+      });
+      
+      res.json({ 
+        success: true, 
+        data: { id: newModerator.id, username: newModerator.username, createdAt: newModerator.createdAt }
+      });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to create moderator' });
+    }
+  });
+
+  // Delete moderator (owner only)
+  app.delete('/api/jack/moderators/:id', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const moderators = await loadModerators();
+      const moderator = moderators.find(m => m.id === id);
+      
+      if (!moderator) {
+        return res.json({ success: false, message: 'Moderator not found' });
+      }
+      
+      const updatedModerators = moderators.filter(m => m.id !== id);
+      await saveModerators(updatedModerators);
+      
+      await logActivity(req.user!.userId, 'owner', 'DELETE_MODERATOR', { 
+        moderatorUsername: moderator.username 
+      });
+      
+      res.json({ success: true, message: 'Moderator deleted' });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to delete moderator' });
+    }
+  });
+
+  // Get activity logs (owner only)
+  app.get('/api/jack/activity-logs', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 15;
+      
+      const logs = await loadActivityLogs();
+      const total = logs.length;
+      const totalPages = Math.ceil(total / limit);
+      const start = (page - 1) * limit;
+      const paginatedLogs = logs.slice(start, start + limit);
+      
+      res.json({
+        success: true,
+        data: {
+          logs: paginatedLogs,
+          pagination: { page, limit, total, totalPages }
+        }
+      });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to load activity logs' });
+    }
+  });
+
   // ====================
   // JACK API ENDPOINTS
   // ====================
