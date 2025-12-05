@@ -188,26 +188,18 @@ function getLastWeeklyResetTime(): string {
   return lastReset.toISOString();
 }
 
-// Get the last monthly reset time (1st of month, 2:00 AM PKT)
+// Get the last monthly reset time (1st of month, 12:00 AM PKT)
 function getLastMonthlyResetTime(): string {
   const pkt = getPakistaniTime();
   const dayOfMonth = pkt.getUTCDate();
-  const hour = pkt.getUTCHours();
   
   let year = pkt.getUTCFullYear();
   let month = pkt.getUTCMonth();
   
-  // If it's the 1st but before 2:00 AM, the last reset was the 1st of previous month
-  if (dayOfMonth === 1 && hour < 2) {
-    month = month - 1;
-    if (month < 0) {
-      month = 11;
-      year = year - 1;
-    }
-  }
-  
-  // Create the last reset date (1st of month, 2:00 AM PKT)
-  const lastReset = new Date(Date.UTC(year, month, 1, 2, 0, 0, 0));
+  // Create the last reset date (1st of month, 12:00 AM PKT = previous day 7:00 PM UTC)
+  const lastReset = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  // Adjust for PKT (UTC+5) - midnight PKT is 7PM previous day UTC
+  lastReset.setUTCHours(-5);
   
   return lastReset.toISOString();
 }
