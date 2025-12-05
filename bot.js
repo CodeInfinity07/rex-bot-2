@@ -202,7 +202,114 @@ const moveable_clubs = ['8937030'];
 const ICIC_USAGE_FILE = './icic_usage.json';
 const SETTINGS_FILE = './settings.json';
 const MEMBERS_FILE = './club_members.json';
+const MODERATORS_FILE = './data/moderators.json';
+const ACTIVITY_LOGS_FILE = './data/activity_logs.json';
 const conversationHistory = new Map();
+
+// Auth configuration
+const OWNER_ID = process.env.OWNER_ID;
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
+
+// In-memory session store (simple approach for single-instance bot)
+const sessions = new Map();
+
+// Generate session token
+function generateSessionToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+// Load moderators from file
+async function loadModerators() {
+    try {
+        const data = await fs.readFile(MODERATORS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            await fs.writeFile(MODERATORS_FILE, '[]', 'utf8');
+            return [];
+        }
+        logger.error('Error loading moderators:', error.message);
+        return [];
+    }
+}
+
+// Save moderators to file
+async function saveModerators(moderators) {
+    try {
+        await fs.writeFile(MODERATORS_FILE, JSON.stringify(moderators, null, 2), 'utf8');
+    } catch (error) {
+        logger.error('Error saving moderators:', error.message);
+    }
+}
+
+// Load activity logs from file
+async function loadActivityLogs() {
+    try {
+        const data = await fs.readFile(ACTIVITY_LOGS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            await fs.writeFile(ACTIVITY_LOGS_FILE, '[]', 'utf8');
+            return [];
+        }
+        logger.error('Error loading activity logs:', error.message);
+        return [];
+    }
+}
+
+// Save activity logs to file
+async function saveActivityLogs(logs) {
+    try {
+        await fs.writeFile(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8');
+    } catch (error) {
+        logger.error('Error saving activity logs:', error.message);
+    }
+}
+
+// Log activity (for moderator actions)
+async function logActivity(userId, userRole, action, details) {
+    const logs = await loadActivityLogs();
+    const logEntry = {
+        id: crypto.randomUUID(),
+        userId,
+        userRole,
+        action,
+        details,
+        timestamp: new Date().toISOString()
+    };
+    logs.unshift(logEntry); // Add to beginning for newest first
+    // Keep only last 500 logs
+    if (logs.length > 500) {
+        logs.length = 500;
+    }
+    await saveActivityLogs(logs);
+    return logEntry;
+}
+
+// Auth middleware
+async function authMiddleware(req, res, next) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+    
+    const session = sessions.get(token);
+    if (!session) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+    
+    req.user = session;
+    next();
+}
+
+// Owner-only middleware
+function ownerOnly(req, res, next) {
+    if (req.user.role !== 'owner') {
+        return res.status(403).json({ success: false, message: 'Owner access required' });
+    }
+    next();
+}
 
 // Load environment variables from token.txt
 (async () => {
@@ -967,6 +1074,217 @@ async function loadSettings() {
 // ====================
 // API ENDPOINTS
 // ====================
+
+// ==================== AUTH ENDPOINTS ====================
+
+// Login endpoint
+app.post('/api/jack/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        if (!username || !password) {
+            return res.json({ success: false, message: 'Username and password are required' });
+        }
+        
+        // Check if owner
+        if (username === OWNER_ID && password === OWNER_PASSWORD) {
+            const token = generateSessionToken();
+            sessions.set(token, {
+                userId: username,
+                role: 'owner',
+                loginTime: new Date().toISOString()
+            });
+            
+            await logActivity(username, 'owner', 'LOGIN', { message: 'Owner logged in' });
+            
+            return res.json({
+                success: true,
+                data: {
+                    token,
+                    user: { id: username, role: 'owner' }
+                }
+            });
+        }
+        
+        // Check if moderator
+        const moderators = await loadModerators();
+        const moderator = moderators.find(m => m.username === username && m.password === password);
+        
+        if (moderator) {
+            const token = generateSessionToken();
+            sessions.set(token, {
+                userId: username,
+                role: 'moderator',
+                loginTime: new Date().toISOString()
+            });
+            
+            await logActivity(username, 'moderator', 'LOGIN', { message: 'Moderator logged in' });
+            
+            return res.json({
+                success: true,
+                data: {
+                    token,
+                    user: { id: username, role: 'moderator' }
+                }
+            });
+        }
+        
+        return res.json({ success: false, message: 'Invalid credentials' });
+    } catch (error) {
+        logger.error('Login error:', error.message);
+        res.json({ success: false, message: 'Login failed' });
+    }
+});
+
+// Logout endpoint
+app.post('/api/jack/logout', authMiddleware, async (req, res) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        
+        await logActivity(req.user.userId, req.user.role, 'LOGOUT', { message: 'User logged out' });
+        
+        sessions.delete(token);
+        res.json({ success: true, message: 'Logged out successfully' });
+    } catch (error) {
+        res.json({ success: false, message: 'Logout failed' });
+    }
+});
+
+// Check session endpoint
+app.get('/api/jack/session', authMiddleware, (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            user: {
+                id: req.user.userId,
+                role: req.user.role
+            }
+        }
+    });
+});
+
+// ==================== MODERATOR MANAGEMENT (Owner Only) ====================
+
+// Get all moderators
+app.get('/api/jack/moderators', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        const moderators = await loadModerators();
+        // Don't send passwords
+        const safeModerators = moderators.map(m => ({
+            id: m.id,
+            username: m.username,
+            createdAt: m.createdAt
+        }));
+        res.json({ success: true, data: safeModerators });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Create moderator
+app.post('/api/jack/moderators', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        if (!username || !password) {
+            return res.json({ success: false, message: 'Username and password are required' });
+        }
+        
+        if (username === OWNER_ID) {
+            return res.json({ success: false, message: 'Cannot use owner username' });
+        }
+        
+        const moderators = await loadModerators();
+        
+        if (moderators.find(m => m.username === username)) {
+            return res.json({ success: false, message: 'Username already exists' });
+        }
+        
+        const newModerator = {
+            id: crypto.randomUUID(),
+            username,
+            password,
+            createdAt: new Date().toISOString()
+        };
+        
+        moderators.push(newModerator);
+        await saveModerators(moderators);
+        
+        await logActivity(req.user.userId, 'owner', 'CREATE_MODERATOR', { 
+            moderatorUsername: username 
+        });
+        
+        res.json({
+            success: true,
+            message: 'Moderator created successfully',
+            data: { id: newModerator.id, username: newModerator.username }
+        });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Delete moderator
+app.delete('/api/jack/moderators/:id', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const moderators = await loadModerators();
+        const moderator = moderators.find(m => m.id === id);
+        
+        if (!moderator) {
+            return res.json({ success: false, message: 'Moderator not found' });
+        }
+        
+        const filteredModerators = moderators.filter(m => m.id !== id);
+        await saveModerators(filteredModerators);
+        
+        // Invalidate any sessions for this moderator
+        for (const [token, session] of sessions.entries()) {
+            if (session.userId === moderator.username) {
+                sessions.delete(token);
+            }
+        }
+        
+        await logActivity(req.user.userId, 'owner', 'DELETE_MODERATOR', { 
+            moderatorUsername: moderator.username 
+        });
+        
+        res.json({ success: true, message: 'Moderator deleted successfully' });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// ==================== ACTIVITY LOGS (Owner Only) ====================
+
+app.get('/api/jack/activity-logs', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const logs = await loadActivityLogs();
+        
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedLogs = logs.slice(startIndex, endIndex);
+        
+        res.json({
+            success: true,
+            data: {
+                logs: paginatedLogs,
+                pagination: {
+                    page,
+                    limit,
+                    total: logs.length,
+                    totalPages: Math.ceil(logs.length / limit)
+                }
+            }
+        });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// ==================== EXISTING ENDPOINTS ====================
 
 app.get('/api/jack/auth-status', (req, res) => {
     res.json({
