@@ -10,7 +10,6 @@ const axios = require('axios');
 const { error } = require('winston');
 const mysql = require('mysql2/promise');
 const WebSocket = require('ws');
-const bcrypt = require('bcryptjs');
 
 require('dotenv').config();
 
@@ -38,7 +37,7 @@ const logger = {
     warn: (message) => console.warn(`[WARN] ${message}`)
 };
 
-// MySQL Configuration - all credentials from environment variables
+// MySQL Configuration
 const MYSQL_CONFIG = {
     host: process.env.MYSQL_HOST || '94.72.106.77',
     user: process.env.MYSQL_USER || 'ryzon',
@@ -48,45 +47,6 @@ const MYSQL_CONFIG = {
     connectionLimit: 10,
     queueLimit: 0
 };
-
-// Write lock for club_members.json to prevent race conditions
-class FileLock {
-    constructor() {
-        this.locked = false;
-        this.queue = [];
-    }
-
-    async acquire() {
-        return new Promise((resolve) => {
-            if (!this.locked) {
-                this.locked = true;
-                resolve();
-            } else {
-                this.queue.push(resolve);
-            }
-        });
-    }
-
-    release() {
-        if (this.queue.length > 0) {
-            const next = this.queue.shift();
-            next();
-        } else {
-            this.locked = false;
-        }
-    }
-
-    async withLock(fn) {
-        await this.acquire();
-        try {
-            return await fn();
-        } finally {
-            this.release();
-        }
-    }
-}
-
-const membersFileLock = new FileLock();
 
 // Message queue system
 class MessageQueue {
@@ -203,114 +163,7 @@ const moveable_clubs = ['8937030'];
 const ICIC_USAGE_FILE = './icic_usage.json';
 const SETTINGS_FILE = './settings.json';
 const MEMBERS_FILE = './club_members.json';
-const MODERATORS_FILE = './data/moderators.json';
-const ACTIVITY_LOGS_FILE = './data/activity_logs.json';
 const conversationHistory = new Map();
-
-// Auth configuration
-const OWNER_ID = process.env.OWNER_ID;
-const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
-
-// In-memory session store (simple approach for single-instance bot)
-const sessions = new Map();
-
-// Generate session token
-function generateSessionToken() {
-    return crypto.randomBytes(32).toString('hex');
-}
-
-// Load moderators from file
-async function loadModerators() {
-    try {
-        const data = await fs.readFile(MODERATORS_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            await fs.writeFile(MODERATORS_FILE, '[]', 'utf8');
-            return [];
-        }
-        logger.error('Error loading moderators:', error.message);
-        return [];
-    }
-}
-
-// Save moderators to file
-async function saveModerators(moderators) {
-    try {
-        await fs.writeFile(MODERATORS_FILE, JSON.stringify(moderators, null, 2), 'utf8');
-    } catch (error) {
-        logger.error('Error saving moderators:', error.message);
-    }
-}
-
-// Load activity logs from file
-async function loadActivityLogs() {
-    try {
-        const data = await fs.readFile(ACTIVITY_LOGS_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            await fs.writeFile(ACTIVITY_LOGS_FILE, '[]', 'utf8');
-            return [];
-        }
-        logger.error('Error loading activity logs:', error.message);
-        return [];
-    }
-}
-
-// Save activity logs to file
-async function saveActivityLogs(logs) {
-    try {
-        await fs.writeFile(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8');
-    } catch (error) {
-        logger.error('Error saving activity logs:', error.message);
-    }
-}
-
-// Log activity (for moderator actions)
-async function logActivity(userId, userRole, action, details) {
-    const logs = await loadActivityLogs();
-    const logEntry = {
-        id: crypto.randomUUID(),
-        userId,
-        userRole,
-        action,
-        details,
-        timestamp: new Date().toISOString()
-    };
-    logs.unshift(logEntry); // Add to beginning for newest first
-    // Keep only last 500 logs
-    if (logs.length > 500) {
-        logs.length = 500;
-    }
-    await saveActivityLogs(logs);
-    return logEntry;
-}
-
-// Auth middleware
-async function authMiddleware(req, res, next) {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-        return res.status(401).json({ success: false, message: 'No token provided' });
-    }
-    
-    const session = sessions.get(token);
-    if (!session) {
-        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
-    }
-    
-    req.user = session;
-    next();
-}
-
-// Owner-only middleware
-function ownerOnly(req, res, next) {
-    if (req.user.role !== 'owner') {
-        return res.status(403).json({ success: false, message: 'Owner access required' });
-    }
-    next();
-}
 
 // Load environment variables from token.txt
 (async () => {
@@ -388,7 +241,6 @@ const CONFIG_FILES = {
 
 const path_users = './users.json';
 const spamPath = "./spam.txt";
-const path_message_counter = './message_counter.json';
 
 // Bot state management
 let botState = {
@@ -426,301 +278,6 @@ let clubAdmins = [];
 let pendingRemovals = [];
 let pendingBans = [];
 let pendingKicks = [];
-
-// Session tracking - tracks when users join the club
-const activeSessions = new Map();
-
-// Get current date in Pakistani time (UTC+5)
-function getPakistaniDate() {
-    const now = new Date();
-    const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
-    return pakistaniTime.toISOString().split('T')[0];
-}
-
-// Get Pakistani time as Date object
-function getPakistaniTime() {
-    const now = new Date();
-    return new Date(now.getTime() + (5 * 60 * 60 * 1000));
-}
-
-// Get the last weekly reset time (Sunday 2:00 AM PKT)
-function getLastWeeklyResetTime() {
-    const pkt = getPakistaniTime();
-    const dayOfWeek = pkt.getUTCDay(); // 0 = Sunday
-    const hour = pkt.getUTCHours();
-    
-    // Calculate days since last Sunday
-    let daysSinceLastSunday = dayOfWeek;
-    
-    // If it's Sunday but before 2:00 AM PKT, the last reset was the previous Sunday
-    if (dayOfWeek === 0 && hour < 2) {
-        daysSinceLastSunday = 7;
-    }
-    
-    // Create the last reset date (Sunday 2:00 AM PKT)
-    const lastReset = new Date(pkt);
-    lastReset.setUTCDate(lastReset.getUTCDate() - daysSinceLastSunday);
-    // 2:00 AM PKT = 21:00 (9 PM) previous day UTC (PKT is UTC+5)
-    lastReset.setUTCHours(2 - 5, 0, 0, 0); // This will properly adjust to Saturday 21:00 UTC
-    
-    return lastReset.toISOString();
-}
-
-// Get the last monthly reset time (1st of month, 12:00 AM PKT)
-function getLastMonthlyResetTime() {
-    const pkt = getPakistaniTime();
-    const dayOfMonth = pkt.getUTCDate();
-    
-    let year = pkt.getUTCFullYear();
-    let month = pkt.getUTCMonth();
-    
-    // If it's not the 1st yet, use current month's 1st
-    // The reset happens at midnight on the 1st, so if we're past midnight on the 1st, we're in the new period
-    
-    // Create the last reset date (1st of month, 12:00 AM PKT = previous day 7:00 PM UTC)
-    const lastReset = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
-    // Adjust for PKT (UTC+5) - midnight PKT is 7PM previous day UTC
-    lastReset.setUTCHours(-5);
-    
-    return lastReset.toISOString();
-}
-
-// Get the last daily reset time (12:00 AM PKT)
-function getLastDailyResetTime() {
-    const pkt = getPakistaniTime();
-    
-    // Create today's midnight in PKT
-    const lastReset = new Date(Date.UTC(
-        pkt.getUTCFullYear(),
-        pkt.getUTCMonth(),
-        pkt.getUTCDate(),
-        0, 0, 0, 0
-    ));
-    // Adjust for PKT (UTC+5) - midnight PKT is 7PM previous day UTC
-    lastReset.setUTCHours(-5);
-    
-    return lastReset.toISOString();
-}
-
-// Get current day identifier for tracking (based on midnight PKT reset)
-function getCurrentDay() {
-    return getLastDailyResetTime();
-}
-
-// Get current week identifier for tracking (based on Sunday 2:00 AM PKT reset)
-function getCurrentWeek() {
-    return getLastWeeklyResetTime();
-}
-
-// Get current month identifier for tracking (based on 1st of month 2:00 AM PKT reset)
-function getCurrentMonth() {
-    return getLastMonthlyResetTime();
-}
-
-// Format seconds to human readable duration
-function formatDuration(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    
-    if (hours > 0) {
-        return `${hours}h ${minutes}m ${secs}s`;
-    } else if (minutes > 0) {
-        return `${minutes}m ${secs}s`;
-    }
-    return `${secs}s`;
-}
-
-// Handle user joining the club
-function handleUserJoin(uid) {
-    activeSessions.set(uid, Date.now());
-    logger.info(`👋 User joined, tracking session: ${uid.substring(0, 16)}...`);
-}
-
-// Handle user leaving the club and update their time
-async function handleUserLeave(uid) {
-    const joinTime = activeSessions.get(uid);
-    if (!joinTime) {
-        logger.warn(`⚠️ No join time found for user: ${uid.substring(0, 16)}...`);
-        return;
-    }
-
-    const sessionDuration = Math.floor((Date.now() - joinTime) / 1000);
-    activeSessions.delete(uid);
-
-    await updateMemberTime(uid, sessionDuration);
-    logger.info(`👋 User left after ${formatDuration(sessionDuration)}: ${uid.substring(0, 16)}...`);
-}
-
-// Update member's time tracking data
-async function updateMemberTime(uid, sessionSeconds) {
-    try {
-        await membersFileLock.withLock(async () => {
-            const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-            const members = JSON.parse(data);
-            
-            const memberIndex = members.findIndex(m => m.UID === uid);
-            if (memberIndex === -1) {
-                logger.warn(`⚠️ Member not found for time update: ${uid.substring(0, 16)}...`);
-                return;
-            }
-
-            const member = members[memberIndex];
-            const currentWeek = getCurrentWeek();
-            const currentMonth = getCurrentMonth();
-            const currentDay = getCurrentDay();
-
-            // Initialize time tracking if not exists
-            if (!member.timeTracking) {
-                member.timeTracking = {
-                    totalSeconds: 0,
-                    dailySeconds: 0,
-                    weeklySeconds: 0,
-                    monthlySeconds: 0,
-                    lastDayReset: currentDay,
-                    lastWeekReset: currentWeek,
-                    lastMonthReset: currentMonth
-                };
-            }
-
-            // Ensure dailySeconds and lastDayReset exist (for existing members)
-            if (member.timeTracking.dailySeconds === undefined) {
-                member.timeTracking.dailySeconds = 0;
-                member.timeTracking.lastDayReset = currentDay;
-            }
-
-            // Reset daily if new day
-            if (member.timeTracking.lastDayReset !== currentDay) {
-                member.timeTracking.dailySeconds = 0;
-                member.timeTracking.lastDayReset = currentDay;
-            }
-
-            // Reset weekly if new week
-            if (member.timeTracking.lastWeekReset !== currentWeek) {
-                member.timeTracking.weeklySeconds = 0;
-                member.timeTracking.lastWeekReset = currentWeek;
-            }
-
-            // Reset monthly if new month
-            if (member.timeTracking.lastMonthReset !== currentMonth) {
-                member.timeTracking.monthlySeconds = 0;
-                member.timeTracking.lastMonthReset = currentMonth;
-            }
-
-            // Add session time
-            member.timeTracking.totalSeconds += sessionSeconds;
-            member.timeTracking.dailySeconds += sessionSeconds;
-            member.timeTracking.weeklySeconds += sessionSeconds;
-            member.timeTracking.monthlySeconds += sessionSeconds;
-
-            members[memberIndex] = member;
-            
-            // Atomic write: write to temp file first, then rename
-            const tempFile = MEMBERS_FILE + '.tmp';
-            await fs.writeFile(tempFile, JSON.stringify(members, null, 2));
-            await fs.rename(tempFile, MEMBERS_FILE);
-            
-            logger.info(`⏱️ Updated time for ${member.NM}: +${formatDuration(sessionSeconds)} (Weekly: ${formatDuration(member.timeTracking.weeklySeconds)}, Monthly: ${formatDuration(member.timeTracking.monthlySeconds)})`);
-        });
-    } catch (error) {
-        logger.error('Error updating member time: ' + error.message);
-    }
-}
-
-// Get member time statistics
-function getMemberTimeStats(member) {
-    const currentDay = getCurrentDay();
-    const currentWeek = getCurrentWeek();
-    const currentMonth = getCurrentMonth();
-    
-    if (!member.timeTracking) {
-        return { dailyHours: 0, weeklyHours: 0, monthlyHours: 0, totalHours: 0 };
-    }
-
-    let dailySeconds = member.timeTracking.dailySeconds || 0;
-    let weeklySeconds = member.timeTracking.weeklySeconds || 0;
-    let monthlySeconds = member.timeTracking.monthlySeconds || 0;
-    const totalSeconds = member.timeTracking.totalSeconds || 0;
-
-    // Check if we need to reset (for display purposes)
-    if (member.timeTracking.lastDayReset !== currentDay) {
-        dailySeconds = 0;
-    }
-    if (member.timeTracking.lastWeekReset !== currentWeek) {
-        weeklySeconds = 0;
-    }
-    if (member.timeTracking.lastMonthReset !== currentMonth) {
-        monthlySeconds = 0;
-    }
-
-    return {
-        dailyHours: Math.round((dailySeconds / 3600) * 100) / 100,
-        weeklyHours: Math.round((weeklySeconds / 3600) * 100) / 100,
-        monthlyHours: Math.round((monthlySeconds / 3600) * 100) / 100,
-        totalHours: Math.round((totalSeconds / 3600) * 100) / 100
-    };
-}
-
-// Message counter state
-let messageCounter = { count: 0, date: getPakistaniDate() };
-
-// Load message counter from file
-async function loadMessageCounter() {
-    try {
-        const data = await fs.readFile(path_message_counter, 'utf8');
-        messageCounter = JSON.parse(data);
-        
-        // Reset if it's a new day in Pakistani time
-        const today = getPakistaniDate();
-        if (messageCounter.date !== today) {
-            messageCounter = { count: 0, date: today };
-            await saveMessageCounter();
-            logger.info('📊 Message counter reset for new day (PKT)');
-        }
-        
-        logger.info(`📊 Message counter loaded: ${messageCounter.count} messages today`);
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            messageCounter = { count: 0, date: getPakistaniDate() };
-            await saveMessageCounter();
-            logger.info('📊 Message counter initialized');
-        } else {
-            logger.error('Error loading message counter: ' + error.message);
-        }
-    }
-}
-
-// Save message counter to file
-async function saveMessageCounter() {
-    try {
-        await fs.writeFile(path_message_counter, JSON.stringify(messageCounter, null, 2));
-    } catch (error) {
-        logger.error('Error saving message counter: ' + error.message);
-    }
-}
-
-// Increment message counter (called when a message is received)
-async function incrementMessageCount() {
-    const today = getPakistaniDate();
-    
-    // Reset if it's a new day
-    if (messageCounter.date !== today) {
-        messageCounter = { count: 0, date: today };
-        logger.info('📊 Message counter reset for new day (PKT)');
-    }
-    
-    messageCounter.count++;
-    await saveMessageCounter();
-}
-
-// Get current message count
-function getMessageCount() {
-    const today = getPakistaniDate();
-    if (messageCounter.date !== today) {
-        return { count: 0, date: today };
-    }
-    return messageCounter;
-}
 
 let openai = new OpenAI({
     apiKey: process.env.OPENAI
@@ -945,45 +502,9 @@ function getTimeUntilMidnight() {
 async function saveClubMembers(jsonMessage) {
     try {
         if (jsonMessage?.PY?.ML !== undefined) {
-            await membersFileLock.withLock(async () => {
-                const newMembers = jsonMessage.PY.ML;
-                
-                // Load existing members to preserve timeTracking data
-                let existingMembers = [];
-                try {
-                    const existingData = await fs.readFile(MEMBERS_FILE, 'utf8');
-                    existingMembers = JSON.parse(existingData);
-                    if (!Array.isArray(existingMembers)) existingMembers = [];
-                } catch (e) {
-                    existingMembers = [];
-                }
-                
-                // Create a map of existing members with their timeTracking data
-                const existingTimeTracking = {};
-                for (const member of existingMembers) {
-                    if (member.UID && member.timeTracking) {
-                        existingTimeTracking[member.UID] = member.timeTracking;
-                    }
-                }
-                
-                // Merge timeTracking into new members
-                const mergedMembers = newMembers.map(member => {
-                    if (member.UID && existingTimeTracking[member.UID]) {
-                        return {
-                            ...member,
-                            timeTracking: existingTimeTracking[member.UID]
-                        };
-                    }
-                    return member;
-                });
-                
-                // Atomic write: write to temp file first, then rename
-                const tempFile = MEMBERS_FILE + '.tmp';
-                const jsonString = JSON.stringify(mergedMembers, null, 2);
-                await fs.writeFile(tempFile, jsonString, 'utf8');
-                await fs.rename(tempFile, MEMBERS_FILE);
-                console.log('Club members saved successfully (timeTracking preserved)!');
-            });
+            const jsonString = JSON.stringify(jsonMessage.PY.ML, null, 2);
+            await fs.writeFile(MEMBERS_FILE, jsonString, 'utf8');
+            console.log('Club members saved successfully!');
         } else {
             console.log('ML property not found in jsonMessage.PY');
         }
@@ -1076,232 +597,6 @@ async function loadSettings() {
 // API ENDPOINTS
 // ====================
 
-// ==================== AUTH ENDPOINTS ====================
-
-// Login endpoint
-app.post('/api/jack/login', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        
-        if (!username || !password) {
-            return res.json({ success: false, message: 'Username and password are required' });
-        }
-        
-        // Check if owner
-        if (username === OWNER_ID && password === OWNER_PASSWORD) {
-            const token = generateSessionToken();
-            sessions.set(token, {
-                userId: username,
-                role: 'owner',
-                loginTime: new Date().toISOString()
-            });
-            
-            await logActivity(username, 'owner', 'LOGIN', { message: 'Owner logged in' });
-            
-            return res.json({
-                success: true,
-                data: {
-                    token,
-                    user: { id: username, role: 'owner' }
-                }
-            });
-        }
-        
-        // Check if moderator
-        const moderators = await loadModerators();
-        const moderator = moderators.find(m => m.username === username);
-        
-        if (moderator) {
-            // Verify password with bcrypt (handles both hashed and legacy plaintext)
-            const isValidPassword = moderator.passwordHash 
-                ? await bcrypt.compare(password, moderator.passwordHash)
-                : moderator.password === password;
-            
-            if (!isValidPassword) {
-                return res.status(401).json({ success: false, message: 'Invalid credentials' });
-            }
-            const token = generateSessionToken();
-            sessions.set(token, {
-                userId: username,
-                role: 'moderator',
-                loginTime: new Date().toISOString()
-            });
-            
-            await logActivity(username, 'moderator', 'LOGIN', { message: 'Moderator logged in' });
-            
-            return res.json({
-                success: true,
-                data: {
-                    token,
-                    user: { id: username, role: 'moderator' }
-                }
-            });
-        }
-        
-        return res.json({ success: false, message: 'Invalid credentials' });
-    } catch (error) {
-        logger.error('Login error:', error.message);
-        res.json({ success: false, message: 'Login failed' });
-    }
-});
-
-// Logout endpoint
-app.post('/api/jack/logout', authMiddleware, async (req, res) => {
-    try {
-        const token = req.headers.authorization?.replace('Bearer ', '');
-        
-        await logActivity(req.user.userId, req.user.role, 'LOGOUT', { message: 'User logged out' });
-        
-        sessions.delete(token);
-        res.json({ success: true, message: 'Logged out successfully' });
-    } catch (error) {
-        res.json({ success: false, message: 'Logout failed' });
-    }
-});
-
-// Check session endpoint
-app.get('/api/jack/session', authMiddleware, (req, res) => {
-    res.json({
-        success: true,
-        data: {
-            user: {
-                id: req.user.userId,
-                role: req.user.role
-            }
-        }
-    });
-});
-
-// ==================== MODERATOR MANAGEMENT (Owner Only) ====================
-
-// Get all moderators
-app.get('/api/jack/moderators', authMiddleware, ownerOnly, async (req, res) => {
-    try {
-        const moderators = await loadModerators();
-        // Don't send passwords
-        const safeModerators = moderators.map(m => ({
-            id: m.id,
-            username: m.username,
-            createdAt: m.createdAt
-        }));
-        res.json({ success: true, data: safeModerators });
-    } catch (error) {
-        res.json({ success: false, message: error.message });
-    }
-});
-
-// Create moderator
-app.post('/api/jack/moderators', authMiddleware, ownerOnly, async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        
-        if (!username || !password) {
-            return res.json({ success: false, message: 'Username and password are required' });
-        }
-        
-        if (password.length < 4) {
-            return res.json({ success: false, message: 'Password must be at least 4 characters' });
-        }
-        
-        if (username === OWNER_ID) {
-            return res.json({ success: false, message: 'Cannot use owner username' });
-        }
-        
-        const moderators = await loadModerators();
-        
-        if (moderators.find(m => m.username === username)) {
-            return res.json({ success: false, message: 'Username already exists' });
-        }
-        
-        // Hash password with bcrypt (10 rounds of salting)
-        const passwordHash = await bcrypt.hash(password, 10);
-        
-        const newModerator = {
-            id: crypto.randomUUID(),
-            username,
-            passwordHash,
-            createdAt: new Date().toISOString()
-        };
-        
-        moderators.push(newModerator);
-        await saveModerators(moderators);
-        
-        await logActivity(req.user.userId, 'owner', 'CREATE_MODERATOR', { 
-            moderatorUsername: username 
-        });
-        
-        res.json({
-            success: true,
-            message: 'Moderator created successfully',
-            data: { id: newModerator.id, username: newModerator.username }
-        });
-    } catch (error) {
-        res.json({ success: false, message: error.message });
-    }
-});
-
-// Delete moderator
-app.delete('/api/jack/moderators/:id', authMiddleware, ownerOnly, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const moderators = await loadModerators();
-        const moderator = moderators.find(m => m.id === id);
-        
-        if (!moderator) {
-            return res.json({ success: false, message: 'Moderator not found' });
-        }
-        
-        const filteredModerators = moderators.filter(m => m.id !== id);
-        await saveModerators(filteredModerators);
-        
-        // Invalidate any sessions for this moderator
-        for (const [token, session] of sessions.entries()) {
-            if (session.userId === moderator.username) {
-                sessions.delete(token);
-            }
-        }
-        
-        await logActivity(req.user.userId, 'owner', 'DELETE_MODERATOR', { 
-            moderatorUsername: moderator.username 
-        });
-        
-        res.json({ success: true, message: 'Moderator deleted successfully' });
-    } catch (error) {
-        res.json({ success: false, message: error.message });
-    }
-});
-
-// ==================== ACTIVITY LOGS (Owner Only) ====================
-
-app.get('/api/jack/activity-logs', authMiddleware, ownerOnly, async (req, res) => {
-    try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const logs = await loadActivityLogs();
-        
-        const startIndex = (page - 1) * limit;
-        const endIndex = startIndex + limit;
-        const paginatedLogs = logs.slice(startIndex, endIndex);
-        
-        res.json({
-            success: true,
-            data: {
-                logs: paginatedLogs,
-                pagination: {
-                    page,
-                    limit,
-                    total: logs.length,
-                    totalPages: Math.ceil(logs.length / limit)
-                }
-            }
-        });
-    } catch (error) {
-        res.json({ success: false, message: error.message });
-    }
-});
-
-// ==================== EXISTING ENDPOINTS ====================
-
 app.get('/api/jack/auth-status', (req, res) => {
     res.json({
         success: true,
@@ -1309,79 +604,6 @@ app.get('/api/jack/auth-status', (req, res) => {
         connected: botState.connected,
         authMessage: authMessage
     });
-});
-
-app.get('/api/jack/message-count', (req, res) => {
-    const count = getMessageCount();
-    res.json({
-        success: true,
-        data: count
-    });
-});
-
-app.get('/api/jack/club-info', (req, res) => {
-    res.json({
-        success: true,
-        data: {
-            clubName: club_name || 'Not Set',
-            clubCode: club_code || 'Not Set',
-            botUid: my_uid || 'Not Set'
-        }
-    });
-});
-
-app.post('/api/jack/update-bot-uid', async (req, res) => {
-    try {
-        const { botUid, password } = req.body;
-        
-        // Password protection for sensitive operation
-        const DEVELOPER_PASSWORD = 'aa00aa00';
-        if (password !== DEVELOPER_PASSWORD) {
-            return res.json({ success: false, message: 'Invalid password' });
-        }
-        
-        if (!botUid || typeof botUid !== 'string' || botUid.trim() === '') {
-            return res.json({ success: false, message: 'Bot UID is required' });
-        }
-
-        const newBotUid = botUid.trim();
-        
-        // Update in memory
-        my_uid = newBotUid;
-        process.env.BOT_UID = newBotUid;
-        
-        // Update .env file
-        try {
-            const envPath = './.env';
-            let envContent = '';
-            try {
-                envContent = await fs.readFile(envPath, 'utf8');
-            } catch (e) {
-                envContent = '';
-            }
-            
-            // Update or add BOT_UID
-            if (envContent.includes('BOT_UID=')) {
-                envContent = envContent.replace(/BOT_UID=.*/g, `BOT_UID=${newBotUid}`);
-            } else {
-                envContent += `\nBOT_UID=${newBotUid}`;
-            }
-            
-            await fs.writeFile(envPath, envContent.trim() + '\n');
-            logger.info(`✅ Bot UID updated to: ${newBotUid}`);
-        } catch (envError) {
-            logger.error('Failed to update .env file:', envError.message);
-        }
-        
-        res.json({ 
-            success: true, 
-            message: 'Bot UID updated successfully',
-            data: { botUid: newBotUid }
-        });
-    } catch (error) {
-        logger.error('Error updating Bot UID:', error.message);
-        res.json({ success: false, message: error.message || 'Failed to update Bot UID' });
-    }
 });
 
 app.get('/api/jack/tone-templates', async (req, res) => {
@@ -1735,8 +957,6 @@ app.get('/api/jack/members', async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchQuery = req.query.search || '';
-        const sortBy = req.query.sortBy || '';
-        const sortOrder = req.query.sortOrder || 'desc';
 
         if (page < 1 || limit < 1 || limit > 100) {
             return res.json({
@@ -1761,31 +981,6 @@ app.get('/api/jack/members', async (req, res) => {
             mediumLevel: allMembers.filter(m => m.LVL >= 5 && m.LVL <= 9).length,
             lowLevel: allMembers.filter(m => m.LVL >= 1 && m.LVL <= 4).length
         };
-
-        // Sort by time if requested
-        if (sortBy === 'dailyTime' || sortBy === 'weeklyTime' || sortBy === 'monthlyTime') {
-            const currentDay = getCurrentDay();
-            const currentWeek = getCurrentWeek();
-            const currentMonth = getCurrentMonth();
-            
-            allMembers.sort((a, b) => {
-                let aSeconds = 0;
-                let bSeconds = 0;
-                
-                if (sortBy === 'dailyTime') {
-                    aSeconds = (a.timeTracking?.lastDayReset === currentDay) ? (a.timeTracking?.dailySeconds || 0) : 0;
-                    bSeconds = (b.timeTracking?.lastDayReset === currentDay) ? (b.timeTracking?.dailySeconds || 0) : 0;
-                } else if (sortBy === 'weeklyTime') {
-                    aSeconds = (a.timeTracking?.lastWeekReset === currentWeek) ? (a.timeTracking?.weeklySeconds || 0) : 0;
-                    bSeconds = (b.timeTracking?.lastWeekReset === currentWeek) ? (b.timeTracking?.weeklySeconds || 0) : 0;
-                } else if (sortBy === 'monthlyTime') {
-                    aSeconds = (a.timeTracking?.lastMonthReset === currentMonth) ? (a.timeTracking?.monthlySeconds || 0) : 0;
-                    bSeconds = (b.timeTracking?.lastMonthReset === currentMonth) ? (b.timeTracking?.monthlySeconds || 0) : 0;
-                }
-                
-                return sortOrder === 'asc' ? aSeconds - bSeconds : bSeconds - aSeconds;
-            });
-        }
 
         const startIndex = (page - 1) * limit;
         const endIndex = startIndex + limit;
@@ -1838,119 +1033,6 @@ app.get('/api/jack/members', async (req, res) => {
     }
 });
 
-// Get member time statistics
-app.get('/api/jack/member-time/:uid', async (req, res) => {
-    try {
-        const { uid } = req.params;
-        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-        const members = JSON.parse(data);
-        
-        const member = members.find(m => m.UID === uid);
-        if (!member) {
-            return res.json({
-                success: false,
-                message: 'Member not found'
-            });
-        }
-
-        const timeStats = getMemberTimeStats(member);
-        
-        res.json({
-            success: true,
-            data: {
-                uid: member.UID,
-                name: member.NM,
-                weeklyHours: timeStats.weeklyHours,
-                monthlyHours: timeStats.monthlyHours,
-                totalHours: timeStats.totalHours,
-                timeTracking: member.timeTracking || null
-            }
-        });
-    } catch (error) {
-        logger.error('Error getting member time:', error.message);
-        res.json({ success: false, message: error.message });
-    }
-});
-
-// Get all members with time statistics
-app.get('/api/jack/members-time', async (req, res) => {
-    try {
-        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-        const members = JSON.parse(data);
-        
-        const membersWithTime = members.map(member => {
-            const timeStats = getMemberTimeStats(member);
-            return {
-                uid: member.UID,
-                name: member.NM,
-                level: member.LVL,
-                weeklyHours: timeStats.weeklyHours,
-                monthlyHours: timeStats.monthlyHours,
-                totalHours: timeStats.totalHours
-            };
-        });
-
-        // Sort by monthly hours (descending)
-        membersWithTime.sort((a, b) => b.monthlyHours - a.monthlyHours);
-        
-        res.json({
-            success: true,
-            data: membersWithTime
-        });
-    } catch (error) {
-        logger.error('Error getting members time:', error.message);
-        res.json({ success: false, message: error.message });
-    }
-});
-
-// Get top 3 active users for daily, weekly, and monthly
-app.get('/api/jack/top-active', async (req, res) => {
-    try {
-        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-        const members = JSON.parse(data);
-        
-        const membersWithTime = members.map(member => {
-            const timeStats = getMemberTimeStats(member);
-            return {
-                uid: member.UID,
-                name: member.NM,
-                level: member.LVL,
-                dailyHours: timeStats.dailyHours,
-                weeklyHours: timeStats.weeklyHours,
-                monthlyHours: timeStats.monthlyHours
-            };
-        });
-
-        // Get top 3 for each period
-        const topDaily = [...membersWithTime]
-            .filter(m => m.dailyHours > 0)
-            .sort((a, b) => b.dailyHours - a.dailyHours)
-            .slice(0, 3);
-
-        const topWeekly = [...membersWithTime]
-            .filter(m => m.weeklyHours > 0)
-            .sort((a, b) => b.weeklyHours - a.weeklyHours)
-            .slice(0, 3);
-
-        const topMonthly = [...membersWithTime]
-            .filter(m => m.monthlyHours > 0)
-            .sort((a, b) => b.monthlyHours - a.monthlyHours)
-            .slice(0, 3);
-        
-        res.json({
-            success: true,
-            data: {
-                daily: topDaily,
-                weekly: topWeekly,
-                monthly: topMonthly
-            }
-        });
-    } catch (error) {
-        logger.error('Error getting top active users:', error.message);
-        res.json({ success: false, message: error.message, data: { daily: [], weekly: [], monthly: [] } });
-    }
-});
-
 app.delete('/api/jack/members/:uid', async (req, res) => {
     try {
         const { uid } = req.params;
@@ -1962,38 +1044,33 @@ app.delete('/api/jack/members/:uid', async (req, res) => {
             });
         }
 
-        const result = await membersFileLock.withLock(async () => {
-            const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-            const allMembers = JSON.parse(data);
-            const memberIndex = allMembers.findIndex(member => member.UID === uid);
+        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+        const allMembers = JSON.parse(data);
+        const memberIndex = allMembers.findIndex(member => member.UID === uid);
 
-            if (memberIndex === -1) {
-                return { success: false, message: 'Member not found' };
+        if (memberIndex === -1) {
+            return res.json({
+                success: false,
+                message: 'Member not found'
+            });
+        }
+
+        const memberToRemove = allMembers[memberIndex];
+        allMembers.splice(memberIndex, 1);
+        await fs.writeFile(MEMBERS_FILE, JSON.stringify(allMembers, null, 2), 'utf8');
+
+        logger.info(`🗑️ Member removed: ${memberToRemove.NM} (UID: ${uid})`);
+        pendingRemovals.push(uid);
+
+        res.json({
+            success: true,
+            message: `Member ${memberToRemove.NM} removed successfully`,
+            removedMember: {
+                UID: memberToRemove.UID,
+                NM: memberToRemove.NM,
+                LVL: memberToRemove.LVL
             }
-
-            const memberToRemove = allMembers[memberIndex];
-            allMembers.splice(memberIndex, 1);
-            
-            // Atomic write
-            const tempFile = MEMBERS_FILE + '.tmp';
-            await fs.writeFile(tempFile, JSON.stringify(allMembers, null, 2), 'utf8');
-            await fs.rename(tempFile, MEMBERS_FILE);
-
-            logger.info(`🗑️ Member removed: ${memberToRemove.NM} (UID: ${uid})`);
-            pendingRemovals.push(uid);
-
-            return {
-                success: true,
-                message: `Member ${memberToRemove.NM} removed successfully`,
-                removedMember: {
-                    UID: memberToRemove.UID,
-                    NM: memberToRemove.NM,
-                    LVL: memberToRemove.LVL
-                }
-            };
         });
-
-        res.json(result);
 
     } catch (error) {
         if (error.code === 'ENOENT') {
@@ -2037,42 +1114,34 @@ app.post('/api/jack/members/bulk-remove', async (req, res) => {
             });
         }
 
-        const result = await membersFileLock.withLock(async () => {
-            const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-            const allMembers = JSON.parse(data);
-            const membersAtLevel = allMembers.filter(member => member.LVL === level);
+        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+        const allMembers = JSON.parse(data);
+        const membersAtLevel = allMembers.filter(member => member.LVL === level);
 
-            if (membersAtLevel.length === 0) {
-                return {
-                    success: false,
-                    message: `No members found at level ${level}`
-                };
-            }
+        if (membersAtLevel.length === 0) {
+            return res.json({
+                success: false,
+                message: `No members found at level ${level}`
+            });
+        }
 
-            const removeCount = Math.min(count, membersAtLevel.length);
-            const membersToRemove = membersAtLevel.slice(0, removeCount);
-            const uidsToRemove = membersToRemove.map(m => m.UID);
+        const removeCount = Math.min(count, membersAtLevel.length);
+        const membersToRemove = membersAtLevel.slice(0, removeCount);
+        const uidsToRemove = membersToRemove.map(m => m.UID);
 
-            const updatedMembers = allMembers.filter(member => !uidsToRemove.includes(member.UID));
-            
-            // Atomic write
-            const tempFile = MEMBERS_FILE + '.tmp';
-            await fs.writeFile(tempFile, JSON.stringify(updatedMembers, null, 2), 'utf8');
-            await fs.rename(tempFile, MEMBERS_FILE);
+        const updatedMembers = allMembers.filter(member => !uidsToRemove.includes(member.UID));
+        await fs.writeFile(MEMBERS_FILE, JSON.stringify(updatedMembers, null, 2), 'utf8');
 
-            pendingRemovals.push(...uidsToRemove);
-            logger.info(`🗑️ Bulk removed ${removeCount} members at level ${level}`);
+        pendingRemovals.push(...uidsToRemove);
+        logger.info(`🗑️ Bulk removed ${removeCount} members at level ${level}`);
 
-            return {
-                success: true,
-                message: `Successfully removed ${removeCount} members at level ${level}`,
-                removedCount: removeCount,
-                level: level,
-                remainingAtLevel: membersAtLevel.length - removeCount
-            };
+        res.json({
+            success: true,
+            message: `Successfully removed ${removeCount} members at level ${level}`,
+            removedCount: removeCount,
+            level: level,
+            remainingAtLevel: membersAtLevel.length - removeCount
         });
-
-        res.json(result);
 
     } catch (error) {
         if (error.code === 'ENOENT') {
@@ -2914,7 +1983,6 @@ async function connectWebSocket() {
 
                 await loadSavedData(path_users);
                 await loadMembersData();
-                await loadMessageCounter();
                 const people = await loadPlayers();
 
                 logger.info("Arrays Loaded.");
@@ -2986,16 +2054,6 @@ async function connectWebSocket() {
 
                     if (jsonMessage?.PY?.hasOwnProperty('ML')) {
                         saveClubMembers(jsonMessage);
-                    }
-
-                    // Handle user join event (PU: 'UJ')
-                    if (jsonMessage?.RH === "CBC" && jsonMessage?.PU === "UJ" && jsonMessage?.PY?.UID) {
-                        handleUserJoin(jsonMessage.PY.UID);
-                    }
-
-                    // Handle user leave event (PU: 'UL')
-                    if (jsonMessage?.RH === "CBC" && jsonMessage?.PU === "UL" && jsonMessage?.PY?.UID) {
-                        await handleUserLeave(jsonMessage.PY.UID);
                     }
 
                     if (jsonMessage?.PY?.hasOwnProperty('ER') &&
@@ -3189,9 +2247,6 @@ async function connectWebSocket() {
                         if (jsonMessage.PY && jsonMessage.PY.MG) {
                             let message = jsonMessage.PY.MG;
                             let UID = jsonMessage.PY.UID;
-
-                            // Increment daily message counter
-                            incrementMessageCount();
 
                             const user_name = findPlayerName(UID);
                             const user_id = findPlayerID(UID);
