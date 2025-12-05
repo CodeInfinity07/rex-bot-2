@@ -9,10 +9,10 @@ import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
 import bcrypt from 'bcryptjs';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from root .env file
+dotenv.config({ path: path.join(process.cwd(), '..', '.env') });
 
-// Auth configuration
+// Auth configuration - loaded from root .env
 const OWNER_ID = process.env.OWNER_ID;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 const MODERATORS_FILE = path.join(process.cwd(), 'data', 'moderators.json');
