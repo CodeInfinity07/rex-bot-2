@@ -3227,6 +3227,76 @@ async function connectWebSocket() {
                                 }
                             }
 
+                            else if (String(message).startsWith("/mtop")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        const membersData = await fs.readFile(MEMBERS_FILE, 'utf8');
+                                        const members = JSON.parse(membersData);
+                                        const currentMonth = getCurrentMonth();
+                                        
+                                        const membersWithTime = members
+                                            .filter(m => m.timeTracking && m.timeTracking.lastMonthReset === currentMonth && m.timeTracking.monthlySeconds > 0)
+                                            .map(m => ({
+                                                name: m.NM,
+                                                seconds: m.timeTracking.monthlySeconds
+                                            }))
+                                            .sort((a, b) => b.seconds - a.seconds)
+                                            .slice(0, 10);
+                                        
+                                        if (membersWithTime.length === 0) {
+                                            sendMessage('No members with time tracked this month.');
+                                        } else {
+                                            sendMessage(`🏆 Top ${membersWithTime.length} Members (This Month):`);
+                                            membersWithTime.forEach((member, index) => {
+                                                setTimeout(() => {
+                                                    sendMessage(`${index + 1}. ${member.name} - ${formatDuration(member.seconds)}`);
+                                                }, (index + 1) * 100);
+                                            });
+                                        }
+                                    } catch (error) {
+                                        sendMessage('Error loading member data.');
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
+                            else if (String(message).startsWith("/wtop")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        const membersData = await fs.readFile(MEMBERS_FILE, 'utf8');
+                                        const members = JSON.parse(membersData);
+                                        const currentWeek = getCurrentWeek();
+                                        
+                                        const membersWithTime = members
+                                            .filter(m => m.timeTracking && m.timeTracking.lastWeekReset === currentWeek && m.timeTracking.weeklySeconds > 0)
+                                            .map(m => ({
+                                                name: m.NM,
+                                                seconds: m.timeTracking.weeklySeconds
+                                            }))
+                                            .sort((a, b) => b.seconds - a.seconds)
+                                            .slice(0, 10);
+                                        
+                                        if (membersWithTime.length === 0) {
+                                            sendMessage('No members with time tracked this week.');
+                                        } else {
+                                            sendMessage(`🏆 Top ${membersWithTime.length} Members (This Week):`);
+                                            membersWithTime.forEach((member, index) => {
+                                                setTimeout(() => {
+                                                    sendMessage(`${index + 1}. ${member.name} - ${formatDuration(member.seconds)}`);
+                                                }, (index + 1) * 100);
+                                            });
+                                        }
+                                    } catch (error) {
+                                        sendMessage('Error loading member data.');
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
                             else if (String(message).startsWith("/spam")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
