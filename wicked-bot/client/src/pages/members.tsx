@@ -181,6 +181,15 @@ export default function Members() {
     return `${minutes}m`;
   };
 
+  const getLevelColor = (level: number): string => {
+    if (level <= 5) return "bg-amber-600 hover:bg-amber-700 text-white";
+    if (level <= 10) return "bg-green-500 hover:bg-green-600 text-white";
+    if (level <= 15) return "bg-blue-500 hover:bg-blue-600 text-white";
+    if (level <= 20) return "bg-yellow-500 hover:bg-yellow-600 text-black";
+    if (level <= 25) return "bg-red-500 hover:bg-red-600 text-white";
+    return "bg-violet-500 hover:bg-violet-600 text-white";
+  };
+
   const renderPageNumbers = () => {
     const pages = [];
     const maxVisiblePages = 5;
@@ -408,7 +417,7 @@ export default function Members() {
                       </h3>
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge
-                          variant={member.LVL >= 10 ? "default" : "secondary"}
+                          className={getLevelColor(member.LVL)}
                           data-testid={`badge-level-${member.UID}`}
                         >
                           Level {member.LVL}
