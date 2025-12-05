@@ -860,6 +860,14 @@ async function handleMessage(data: string) {
     const jsonMessage = JSON.parse(data);
     botState.stats.messagesProcessed++;
 
+    // Check for AUA message - this confirms bot is fully connected
+    if (jsonMessage?.RH === "AUA") {
+      botState.connected = true;
+      botState.connecting = false;
+      botState.startTime = Date.now();
+      logger.info(`🎉 Bot authenticated and connected to ${club_name}!`);
+    }
+
     // Increment daily message counter when MG (message) is received
     if (jsonMessage?.PY?.MG !== undefined) {
       await incrementMessageCounter();
@@ -1097,7 +1105,7 @@ function connectToClub() {
   const ws = new WebSocket(url);
 
   ws.on('open', () => {
-    logger.info('✅ WebSocket connected');
+    logger.info('✅ WebSocket opened, authenticating...');
     
     // Send initial connection
     ws.send('2probe');
@@ -1117,11 +1125,8 @@ function connectToClub() {
     ws.send(`42${JSON.stringify(['CLUB_STATE_IN', authMessage])}`);
     
     botState.socket = ws;
-    botState.connected = true;
-    botState.connecting = false;
-    botState.startTime = Date.now();
-    
-    logger.info(`🎉 Bot connected to ${club_name}!`);
+    // Don't set connected = true yet, wait for AUA message
+    // botState.connecting remains true until AUA received
   });
 
   ws.on('message', async (data: WebSocket.Data) => {
