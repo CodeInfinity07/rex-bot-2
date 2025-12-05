@@ -93,9 +93,31 @@ API endpoints `/api/jack/member-time/:uid` and `/api/jack/members-time` provide 
 
 **Configuration Files**: Text-based lists (comma-separated or line-separated) for admins, spam words, banned patterns, exemptions, and loyal members. Simple format allows manual editing if needed.
 
+### Authentication System
+
+**Dashboard Access Control**: The dashboard requires authentication to access. Two user types are supported:
+
+- **Owner**: Has full access to all features including creating/managing moderators and viewing activity logs. Owner credentials are stored in environment variables (`OWNER_ID`, `OWNER_PASSWORD`).
+- **Moderator**: Can access all dashboard features except moderator management and activity logs. Moderator accounts are created by the owner and stored in `data/moderators.json` with bcrypt-hashed passwords.
+
+**Session Management**: Token-based authentication with in-memory session storage. Sessions include user ID, role, and login time. Tokens are generated using crypto.randomBytes for security.
+
+**Activity Logging**: All login/logout events and moderator management actions are tracked in `data/activity_logs.json`. The Activity Logs page (owner-only) displays this history with pagination.
+
+**Auth Flow**:
+1. User enters credentials on login page
+2. Server validates against owner credentials or moderator list
+3. Session token generated and stored
+4. Frontend stores token in localStorage and includes in API request headers
+5. Protected API endpoints validate token via authMiddleware
+
 ### Security Considerations
 
-**Credential Management**: Bot authentication credentials (EP, KEY, BOT_UID) stored in `.env` file, never committed to version control. Production deployments must set these environment variables.
+**Credential Management**: Bot authentication credentials (EP, KEY, BOT_UID) stored in `.env` file, never committed to version control. Production deployments must set these environment variables. MySQL credentials also use environment variables only (no hardcoded defaults).
+
+**Password Hashing**: Moderator passwords are hashed with bcrypt (10 salt rounds) before storage. The system supports both legacy plaintext and hashed passwords for backward compatibility during migration.
+
+**Role-Based Access**: Server-side middleware (`ownerOnly`) enforces owner-only access for moderator CRUD operations and activity logs. Client-side checks hide UI elements but server enforcement provides actual security.
 
 **Password Protection**: Critical bot control actions (restart, credential updates) require admin password verification via dialog prompts.
 
