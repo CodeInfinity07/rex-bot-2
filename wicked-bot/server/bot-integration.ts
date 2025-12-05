@@ -27,7 +27,7 @@ const SPAM_FILE = path.join(DATA_DIR, 'spam.txt');
 const ADMINS_FILE = path.join(DATA_DIR, 'admins.txt');
 const BANNED_PATTERNS_FILE = path.join(DATA_DIR, 'banned_patterns.txt');
 const BOT_CONFIG_FILE = path.join(DATA_DIR, 'bot_configuration.json');
-const MESSAGE_COUNTER_FILE = path.join(DATA_DIR, 'message_counter.json');
+const MESSAGE_COUNTER_FILE = path.join(process.cwd(), '..', 'message_counter.json');
 
 // Daily message counter state
 interface MessageCounterData {
