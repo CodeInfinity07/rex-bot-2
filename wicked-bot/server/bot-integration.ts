@@ -1478,13 +1478,16 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // Get activity logs (owner only)
+  // Get activity logs (owner only) - max 50 logs, 10 per page
   app.get('/api/jack/activity-logs', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 15;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const maxLogs = 50;
       
-      const logs = await loadActivityLogs();
+      const allLogs = await loadActivityLogs();
+      // Limit to most recent 50 logs
+      const logs = allLogs.slice(0, maxLogs);
       const total = logs.length;
       const totalPages = Math.ceil(total / limit);
       const start = (page - 1) * limit;
@@ -1694,10 +1697,10 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // Save settings
-  app.post('/api/jack/settings', async (req, res) => {
+  // Save settings (with activity logging)
+  app.post('/api/jack/settings', authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { allowAvatars, banLevel, allowGuestIds } = req.body;
+      const { allowAvatars, banLevel, allowGuestIds, punishments } = req.body;
 
       if (typeof allowAvatars !== 'boolean' ||
           typeof allowGuestIds !== 'boolean' ||
@@ -1706,12 +1709,62 @@ export function setupBotIntegration(app: Express) {
         return res.json({ success: false, message: 'Invalid settings data' });
       }
 
-      const settings = {
+      // Load current settings to compare and preserve existing values
+      const currentSettings = await loadSettings();
+
+      const settings: any = {
         allowAvatars,
         banLevel,
         allowGuestIds,
         updatedAt: new Date().toISOString()
       };
+
+      // Check if club settings changed
+      const clubSettingsChanged = 
+        currentSettings.allowAvatars !== allowAvatars ||
+        currentSettings.banLevel !== banLevel ||
+        currentSettings.allowGuestIds !== allowGuestIds;
+
+      if (clubSettingsChanged && req.user) {
+        await logActivity(req.user.userId, req.user.role, 'UPDATE_CLUB_SETTINGS', {
+          allowAvatars,
+          banLevel,
+          allowGuestIds
+        });
+      }
+
+      // Handle punishment settings - preserve existing if not provided
+      if (punishments) {
+        settings.punishments = {
+          bannedPatterns: punishments.bannedPatterns || 'ban',
+          lowLevel: punishments.lowLevel || 'ban',
+          noGuestId: punishments.noGuestId || 'ban',
+          noAvatar: punishments.noAvatar || 'kick',
+          spamWords: punishments.spamWords || 'kick'
+        };
+
+        // Check if punishment settings changed
+        const currentPunishments = currentSettings.punishments || {};
+        const punishmentSettingsChanged = 
+          currentPunishments.bannedPatterns !== punishments.bannedPatterns ||
+          currentPunishments.lowLevel !== punishments.lowLevel ||
+          currentPunishments.noGuestId !== punishments.noGuestId ||
+          currentPunishments.noAvatar !== punishments.noAvatar ||
+          currentPunishments.spamWords !== punishments.spamWords;
+
+        if (punishmentSettingsChanged && req.user) {
+          await logActivity(req.user.userId, req.user.role, 'UPDATE_PUNISHMENT_SETTINGS', {
+            bannedPatterns: punishments.bannedPatterns,
+            lowLevel: punishments.lowLevel,
+            noGuestId: punishments.noGuestId,
+            noAvatar: punishments.noAvatar,
+            spamWords: punishments.spamWords
+          });
+        }
+      } else if (currentSettings.punishments) {
+        // Preserve existing punishment settings if not provided in request
+        settings.punishments = currentSettings.punishments;
+      }
 
       await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
       botConfig.settings = settings;

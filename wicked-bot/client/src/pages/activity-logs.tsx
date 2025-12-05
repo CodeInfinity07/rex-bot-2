@@ -46,6 +46,8 @@ const actionIcons: Record<string, typeof Activity> = {
   LOGOUT: LogOut,
   CREATE_MODERATOR: UserPlus,
   DELETE_MODERATOR: UserMinus,
+  UPDATE_CLUB_SETTINGS: Settings,
+  UPDATE_PUNISHMENT_SETTINGS: Shield,
   UPDATE_SETTINGS: Settings,
   UPDATE_PROTECTION: Shield,
 };
@@ -55,6 +57,8 @@ const actionColors: Record<string, string> = {
   LOGOUT: "bg-gray-500/10 text-gray-500",
   CREATE_MODERATOR: "bg-blue-500/10 text-blue-500",
   DELETE_MODERATOR: "bg-red-500/10 text-red-500",
+  UPDATE_CLUB_SETTINGS: "bg-yellow-500/10 text-yellow-500",
+  UPDATE_PUNISHMENT_SETTINGS: "bg-purple-500/10 text-purple-500",
   UPDATE_SETTINGS: "bg-yellow-500/10 text-yellow-500",
   UPDATE_PROTECTION: "bg-purple-500/10 text-purple-500",
 };
@@ -81,6 +85,20 @@ function formatActionDetails(action: string, details: Record<string, unknown>): 
       return `Created moderator: ${details.moderatorUsername}`;
     case "DELETE_MODERATOR":
       return `Deleted moderator: ${details.moderatorUsername}`;
+    case "UPDATE_CLUB_SETTINGS":
+      const clubSettings: string[] = [];
+      if (details.allowAvatars !== undefined) clubSettings.push(`Avatars: ${details.allowAvatars ? 'Allowed' : 'Not Allowed'}`);
+      if (details.allowGuestIds !== undefined) clubSettings.push(`Guest IDs: ${details.allowGuestIds ? 'Allowed' : 'Not Allowed'}`);
+      if (details.banLevel !== undefined) clubSettings.push(`Ban Level: ${details.banLevel}`);
+      return `Updated club settings - ${clubSettings.join(', ')}`;
+    case "UPDATE_PUNISHMENT_SETTINGS":
+      const punishments: string[] = [];
+      if (details.bannedPatterns) punishments.push(`Banned Patterns: ${details.bannedPatterns}`);
+      if (details.lowLevel) punishments.push(`Low Level: ${details.lowLevel}`);
+      if (details.noGuestId) punishments.push(`No Guest ID: ${details.noGuestId}`);
+      if (details.noAvatar) punishments.push(`No Avatar: ${details.noAvatar}`);
+      if (details.spamWords) punishments.push(`Spam Words: ${details.spamWords}`);
+      return `Updated punishment settings - ${punishments.join(', ')}`;
     case "UPDATE_SETTINGS":
       return `Updated settings: ${details.setting || "general"}`;
     case "UPDATE_PROTECTION":
@@ -94,7 +112,7 @@ export default function ActivityLogs() {
   const { isOwner } = useAuth();
   const [, setLocation] = useLocation();
   const [page, setPage] = useState(1);
-  const limit = 15;
+  const limit = 10;
 
   const { data, isLoading, isError } = useQuery<ActivityLogsResponse>({
     queryKey: [`/api/jack/activity-logs?page=${page}&limit=${limit}`],
