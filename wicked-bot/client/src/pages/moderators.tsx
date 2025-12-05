@@ -268,15 +268,13 @@ export default function Moderators() {
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="pr-10"
                   />
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full px-3"
+                    className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+                  </button>
                 </div>
               </div>
             </div>
@@ -408,15 +406,13 @@ export default function Moderators() {
                   onChange={(e) => setChangePassword(e.target.value)}
                   className="pr-10"
                 />
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
+                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
                   onClick={() => setShowChangePassword(!showChangePassword)}
                 >
                   {showChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                </button>
               </div>
             </div>
             <div className="space-y-2">
