@@ -48,6 +48,45 @@ const MYSQL_CONFIG = {
     queueLimit: 0
 };
 
+// Write lock for club_members.json to prevent race conditions
+class FileLock {
+    constructor() {
+        this.locked = false;
+        this.queue = [];
+    }
+
+    async acquire() {
+        return new Promise((resolve) => {
+            if (!this.locked) {
+                this.locked = true;
+                resolve();
+            } else {
+                this.queue.push(resolve);
+            }
+        });
+    }
+
+    release() {
+        if (this.queue.length > 0) {
+            const next = this.queue.shift();
+            next();
+        } else {
+            this.locked = false;
+        }
+    }
+
+    async withLock(fn) {
+        await this.acquire();
+        try {
+            return await fn();
+        } finally {
+            this.release();
+        }
+    }
+}
+
+const membersFileLock = new FileLock();
+
 // Message queue system
 class MessageQueue {
     constructor() {
@@ -408,68 +447,73 @@ async function handleUserLeave(uid) {
 // Update member's time tracking data
 async function updateMemberTime(uid, sessionSeconds) {
     try {
-        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-        const members = JSON.parse(data);
-        
-        const memberIndex = members.findIndex(m => m.UID === uid);
-        if (memberIndex === -1) {
-            logger.warn(`⚠️ Member not found for time update: ${uid.substring(0, 16)}...`);
-            return;
-        }
+        await membersFileLock.withLock(async () => {
+            const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+            const members = JSON.parse(data);
+            
+            const memberIndex = members.findIndex(m => m.UID === uid);
+            if (memberIndex === -1) {
+                logger.warn(`⚠️ Member not found for time update: ${uid.substring(0, 16)}...`);
+                return;
+            }
 
-        const member = members[memberIndex];
-        const currentWeek = getCurrentWeek();
-        const currentMonth = getCurrentMonth();
+            const member = members[memberIndex];
+            const currentWeek = getCurrentWeek();
+            const currentMonth = getCurrentMonth();
+            const currentDay = getCurrentDay();
 
-        const currentDay = getCurrentDay();
+            // Initialize time tracking if not exists
+            if (!member.timeTracking) {
+                member.timeTracking = {
+                    totalSeconds: 0,
+                    dailySeconds: 0,
+                    weeklySeconds: 0,
+                    monthlySeconds: 0,
+                    lastDayReset: currentDay,
+                    lastWeekReset: currentWeek,
+                    lastMonthReset: currentMonth
+                };
+            }
 
-        // Initialize time tracking if not exists
-        if (!member.timeTracking) {
-            member.timeTracking = {
-                totalSeconds: 0,
-                dailySeconds: 0,
-                weeklySeconds: 0,
-                monthlySeconds: 0,
-                lastDayReset: currentDay,
-                lastWeekReset: currentWeek,
-                lastMonthReset: currentMonth
-            };
-        }
+            // Ensure dailySeconds and lastDayReset exist (for existing members)
+            if (member.timeTracking.dailySeconds === undefined) {
+                member.timeTracking.dailySeconds = 0;
+                member.timeTracking.lastDayReset = currentDay;
+            }
 
-        // Ensure dailySeconds and lastDayReset exist (for existing members)
-        if (member.timeTracking.dailySeconds === undefined) {
-            member.timeTracking.dailySeconds = 0;
-            member.timeTracking.lastDayReset = currentDay;
-        }
+            // Reset daily if new day
+            if (member.timeTracking.lastDayReset !== currentDay) {
+                member.timeTracking.dailySeconds = 0;
+                member.timeTracking.lastDayReset = currentDay;
+            }
 
-        // Reset daily if new day
-        if (member.timeTracking.lastDayReset !== currentDay) {
-            member.timeTracking.dailySeconds = 0;
-            member.timeTracking.lastDayReset = currentDay;
-        }
+            // Reset weekly if new week
+            if (member.timeTracking.lastWeekReset !== currentWeek) {
+                member.timeTracking.weeklySeconds = 0;
+                member.timeTracking.lastWeekReset = currentWeek;
+            }
 
-        // Reset weekly if new week
-        if (member.timeTracking.lastWeekReset !== currentWeek) {
-            member.timeTracking.weeklySeconds = 0;
-            member.timeTracking.lastWeekReset = currentWeek;
-        }
+            // Reset monthly if new month
+            if (member.timeTracking.lastMonthReset !== currentMonth) {
+                member.timeTracking.monthlySeconds = 0;
+                member.timeTracking.lastMonthReset = currentMonth;
+            }
 
-        // Reset monthly if new month
-        if (member.timeTracking.lastMonthReset !== currentMonth) {
-            member.timeTracking.monthlySeconds = 0;
-            member.timeTracking.lastMonthReset = currentMonth;
-        }
+            // Add session time
+            member.timeTracking.totalSeconds += sessionSeconds;
+            member.timeTracking.dailySeconds += sessionSeconds;
+            member.timeTracking.weeklySeconds += sessionSeconds;
+            member.timeTracking.monthlySeconds += sessionSeconds;
 
-        // Add session time
-        member.timeTracking.totalSeconds += sessionSeconds;
-        member.timeTracking.dailySeconds += sessionSeconds;
-        member.timeTracking.weeklySeconds += sessionSeconds;
-        member.timeTracking.monthlySeconds += sessionSeconds;
-
-        members[memberIndex] = member;
-        await fs.writeFile(MEMBERS_FILE, JSON.stringify(members, null, 2));
-        
-        logger.info(`⏱️ Updated time for ${member.NM}: +${formatDuration(sessionSeconds)} (Weekly: ${formatDuration(member.timeTracking.weeklySeconds)}, Monthly: ${formatDuration(member.timeTracking.monthlySeconds)})`);
+            members[memberIndex] = member;
+            
+            // Atomic write: write to temp file first, then rename
+            const tempFile = MEMBERS_FILE + '.tmp';
+            await fs.writeFile(tempFile, JSON.stringify(members, null, 2));
+            await fs.rename(tempFile, MEMBERS_FILE);
+            
+            logger.info(`⏱️ Updated time for ${member.NM}: +${formatDuration(sessionSeconds)} (Weekly: ${formatDuration(member.timeTracking.weeklySeconds)}, Monthly: ${formatDuration(member.timeTracking.monthlySeconds)})`);
+        });
     } catch (error) {
         logger.error('Error updating member time: ' + error.message);
     }
@@ -793,9 +837,45 @@ function getTimeUntilMidnight() {
 async function saveClubMembers(jsonMessage) {
     try {
         if (jsonMessage?.PY?.ML !== undefined) {
-            const jsonString = JSON.stringify(jsonMessage.PY.ML, null, 2);
-            await fs.writeFile(MEMBERS_FILE, jsonString, 'utf8');
-            console.log('Club members saved successfully!');
+            await membersFileLock.withLock(async () => {
+                const newMembers = jsonMessage.PY.ML;
+                
+                // Load existing members to preserve timeTracking data
+                let existingMembers = [];
+                try {
+                    const existingData = await fs.readFile(MEMBERS_FILE, 'utf8');
+                    existingMembers = JSON.parse(existingData);
+                    if (!Array.isArray(existingMembers)) existingMembers = [];
+                } catch (e) {
+                    existingMembers = [];
+                }
+                
+                // Create a map of existing members with their timeTracking data
+                const existingTimeTracking = {};
+                for (const member of existingMembers) {
+                    if (member.UID && member.timeTracking) {
+                        existingTimeTracking[member.UID] = member.timeTracking;
+                    }
+                }
+                
+                // Merge timeTracking into new members
+                const mergedMembers = newMembers.map(member => {
+                    if (member.UID && existingTimeTracking[member.UID]) {
+                        return {
+                            ...member,
+                            timeTracking: existingTimeTracking[member.UID]
+                        };
+                    }
+                    return member;
+                });
+                
+                // Atomic write: write to temp file first, then rename
+                const tempFile = MEMBERS_FILE + '.tmp';
+                const jsonString = JSON.stringify(mergedMembers, null, 2);
+                await fs.writeFile(tempFile, jsonString, 'utf8');
+                await fs.rename(tempFile, MEMBERS_FILE);
+                console.log('Club members saved successfully (timeTracking preserved)!');
+            });
         } else {
             console.log('ML property not found in jsonMessage.PY');
         }
@@ -1548,33 +1628,38 @@ app.delete('/api/jack/members/:uid', async (req, res) => {
             });
         }
 
-        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-        const allMembers = JSON.parse(data);
-        const memberIndex = allMembers.findIndex(member => member.UID === uid);
+        const result = await membersFileLock.withLock(async () => {
+            const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+            const allMembers = JSON.parse(data);
+            const memberIndex = allMembers.findIndex(member => member.UID === uid);
 
-        if (memberIndex === -1) {
-            return res.json({
-                success: false,
-                message: 'Member not found'
-            });
-        }
-
-        const memberToRemove = allMembers[memberIndex];
-        allMembers.splice(memberIndex, 1);
-        await fs.writeFile(MEMBERS_FILE, JSON.stringify(allMembers, null, 2), 'utf8');
-
-        logger.info(`🗑️ Member removed: ${memberToRemove.NM} (UID: ${uid})`);
-        pendingRemovals.push(uid);
-
-        res.json({
-            success: true,
-            message: `Member ${memberToRemove.NM} removed successfully`,
-            removedMember: {
-                UID: memberToRemove.UID,
-                NM: memberToRemove.NM,
-                LVL: memberToRemove.LVL
+            if (memberIndex === -1) {
+                return { success: false, message: 'Member not found' };
             }
+
+            const memberToRemove = allMembers[memberIndex];
+            allMembers.splice(memberIndex, 1);
+            
+            // Atomic write
+            const tempFile = MEMBERS_FILE + '.tmp';
+            await fs.writeFile(tempFile, JSON.stringify(allMembers, null, 2), 'utf8');
+            await fs.rename(tempFile, MEMBERS_FILE);
+
+            logger.info(`🗑️ Member removed: ${memberToRemove.NM} (UID: ${uid})`);
+            pendingRemovals.push(uid);
+
+            return {
+                success: true,
+                message: `Member ${memberToRemove.NM} removed successfully`,
+                removedMember: {
+                    UID: memberToRemove.UID,
+                    NM: memberToRemove.NM,
+                    LVL: memberToRemove.LVL
+                }
+            };
         });
+
+        res.json(result);
 
     } catch (error) {
         if (error.code === 'ENOENT') {
@@ -1618,34 +1703,42 @@ app.post('/api/jack/members/bulk-remove', async (req, res) => {
             });
         }
 
-        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
-        const allMembers = JSON.parse(data);
-        const membersAtLevel = allMembers.filter(member => member.LVL === level);
+        const result = await membersFileLock.withLock(async () => {
+            const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+            const allMembers = JSON.parse(data);
+            const membersAtLevel = allMembers.filter(member => member.LVL === level);
 
-        if (membersAtLevel.length === 0) {
-            return res.json({
-                success: false,
-                message: `No members found at level ${level}`
-            });
-        }
+            if (membersAtLevel.length === 0) {
+                return {
+                    success: false,
+                    message: `No members found at level ${level}`
+                };
+            }
 
-        const removeCount = Math.min(count, membersAtLevel.length);
-        const membersToRemove = membersAtLevel.slice(0, removeCount);
-        const uidsToRemove = membersToRemove.map(m => m.UID);
+            const removeCount = Math.min(count, membersAtLevel.length);
+            const membersToRemove = membersAtLevel.slice(0, removeCount);
+            const uidsToRemove = membersToRemove.map(m => m.UID);
 
-        const updatedMembers = allMembers.filter(member => !uidsToRemove.includes(member.UID));
-        await fs.writeFile(MEMBERS_FILE, JSON.stringify(updatedMembers, null, 2), 'utf8');
+            const updatedMembers = allMembers.filter(member => !uidsToRemove.includes(member.UID));
+            
+            // Atomic write
+            const tempFile = MEMBERS_FILE + '.tmp';
+            await fs.writeFile(tempFile, JSON.stringify(updatedMembers, null, 2), 'utf8');
+            await fs.rename(tempFile, MEMBERS_FILE);
 
-        pendingRemovals.push(...uidsToRemove);
-        logger.info(`🗑️ Bulk removed ${removeCount} members at level ${level}`);
+            pendingRemovals.push(...uidsToRemove);
+            logger.info(`🗑️ Bulk removed ${removeCount} members at level ${level}`);
 
-        res.json({
-            success: true,
-            message: `Successfully removed ${removeCount} members at level ${level}`,
-            removedCount: removeCount,
-            level: level,
-            remainingAtLevel: membersAtLevel.length - removeCount
+            return {
+                success: true,
+                message: `Successfully removed ${removeCount} members at level ${level}`,
+                removedCount: removeCount,
+                level: level,
+                remainingAtLevel: membersAtLevel.length - removeCount
+            };
         });
+
+        res.json(result);
 
     } catch (error) {
         if (error.code === 'ENOENT') {
