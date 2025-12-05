@@ -160,21 +160,66 @@ interface MemberTimeData {
   lastMonthReset: string;
 }
 
-// Get current week number (ISO week)
-function getCurrentWeek(): string {
+// Get Pakistani time as Date object
+function getPakistaniTime(): Date {
   const now = new Date();
-  const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
-  const startOfYear = new Date(pakistaniTime.getFullYear(), 0, 1);
-  const days = Math.floor((pakistaniTime.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-  const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
-  return `${pakistaniTime.getFullYear()}-W${weekNumber.toString().padStart(2, '0')}`;
+  return new Date(now.getTime() + (5 * 60 * 60 * 1000));
 }
 
-// Get current month
+// Get the last weekly reset time (Sunday 2:00 AM PKT)
+function getLastWeeklyResetTime(): string {
+  const pkt = getPakistaniTime();
+  const dayOfWeek = pkt.getUTCDay(); // 0 = Sunday
+  const hour = pkt.getUTCHours();
+  
+  // Calculate days since last Sunday
+  let daysSinceLastSunday = dayOfWeek;
+  
+  // If it's Sunday but before 2:00 AM, the last reset was the previous Sunday
+  if (dayOfWeek === 0 && hour < 2) {
+    daysSinceLastSunday = 7;
+  }
+  
+  // Create the last reset date (Sunday 2:00 AM PKT)
+  const lastReset = new Date(pkt);
+  lastReset.setUTCDate(lastReset.getUTCDate() - daysSinceLastSunday);
+  lastReset.setUTCHours(2, 0, 0, 0);
+  
+  return lastReset.toISOString();
+}
+
+// Get the last monthly reset time (1st of month, 2:00 AM PKT)
+function getLastMonthlyResetTime(): string {
+  const pkt = getPakistaniTime();
+  const dayOfMonth = pkt.getUTCDate();
+  const hour = pkt.getUTCHours();
+  
+  let year = pkt.getUTCFullYear();
+  let month = pkt.getUTCMonth();
+  
+  // If it's the 1st but before 2:00 AM, the last reset was the 1st of previous month
+  if (dayOfMonth === 1 && hour < 2) {
+    month = month - 1;
+    if (month < 0) {
+      month = 11;
+      year = year - 1;
+    }
+  }
+  
+  // Create the last reset date (1st of month, 2:00 AM PKT)
+  const lastReset = new Date(Date.UTC(year, month, 1, 2, 0, 0, 0));
+  
+  return lastReset.toISOString();
+}
+
+// Get current week identifier for tracking (based on Sunday 2:00 AM PKT reset)
+function getCurrentWeek(): string {
+  return getLastWeeklyResetTime();
+}
+
+// Get current month identifier for tracking (based on 1st of month 2:00 AM PKT reset)
 function getCurrentMonth(): string {
-  const now = new Date();
-  const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
-  return `${pakistaniTime.getFullYear()}-${(pakistaniTime.getMonth() + 1).toString().padStart(2, '0')}`;
+  return getLastMonthlyResetTime();
 }
 
 // Handle user joining the club
