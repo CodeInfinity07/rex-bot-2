@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Shield, Activity, Bot } from "lucide-react";
+import { Users, Shield, Activity, Bot, Trophy, Clock } from "lucide-react";
 
 interface MembersResponse {
   success: boolean;
@@ -46,6 +46,24 @@ interface MessageCountResponse {
   };
 }
 
+interface TopActiveUser {
+  uid: string;
+  name: string;
+  level: number;
+  dailyHours: number;
+  weeklyHours: number;
+  monthlyHours: number;
+}
+
+interface TopActiveResponse {
+  success: boolean;
+  data: {
+    daily: TopActiveUser[];
+    weekly: TopActiveUser[];
+    monthly: TopActiveUser[];
+  };
+}
+
 export default function Overview() {
   const { data: membersData } = useQuery<MembersResponse>({
     queryKey: ["/api/jack/members"],
@@ -66,6 +84,11 @@ export default function Overview() {
   const { data: messageCount } = useQuery<MessageCountResponse>({
     queryKey: ["/api/jack/message-count"],
     refetchInterval: 5000,
+  });
+
+  const { data: topActive } = useQuery<TopActiveResponse>({
+    queryKey: ["/api/jack/top-active"],
+    refetchInterval: 30000,
   });
 
   const totalMembers = membersData?.data?.total || 0;
@@ -173,6 +196,110 @@ export default function Overview() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div>
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <Trophy className="h-5 w-5 text-yellow-500" />
+          Top Active Members
+        </h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Clock className="h-4 w-4 text-blue-500" />
+                Today's Top 3
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {topActive?.data?.daily && topActive.data.daily.length > 0 ? (
+                <div className="space-y-3">
+                  {topActive.data.daily.map((user, index) => (
+                    <div key={user.uid} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold text-sm ${index === 0 ? 'text-yellow-500' : index === 1 ? 'text-gray-400' : 'text-amber-600'}`}>
+                          #{index + 1}
+                        </span>
+                        <span className="text-sm truncate max-w-[120px]" title={user.name}>
+                          {user.name}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-blue-500">
+                        {user.dailyHours.toFixed(1)}h
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No activity today</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Clock className="h-4 w-4 text-green-500" />
+                Weekly Top 3
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {topActive?.data?.weekly && topActive.data.weekly.length > 0 ? (
+                <div className="space-y-3">
+                  {topActive.data.weekly.map((user, index) => (
+                    <div key={user.uid} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold text-sm ${index === 0 ? 'text-yellow-500' : index === 1 ? 'text-gray-400' : 'text-amber-600'}`}>
+                          #{index + 1}
+                        </span>
+                        <span className="text-sm truncate max-w-[120px]" title={user.name}>
+                          {user.name}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-green-500">
+                        {user.weeklyHours.toFixed(1)}h
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No activity this week</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Clock className="h-4 w-4 text-purple-500" />
+                Monthly Top 3
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {topActive?.data?.monthly && topActive.data.monthly.length > 0 ? (
+                <div className="space-y-3">
+                  {topActive.data.monthly.map((user, index) => (
+                    <div key={user.uid} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold text-sm ${index === 0 ? 'text-yellow-500' : index === 1 ? 'text-gray-400' : 'text-amber-600'}`}>
+                          #{index + 1}
+                        </span>
+                        <span className="text-sm truncate max-w-[120px]" title={user.name}>
+                          {user.name}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-purple-500">
+                        {user.monthlyHours.toFixed(1)}h
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No activity this month</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

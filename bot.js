@@ -305,7 +305,7 @@ function getLastWeeklyResetTime() {
     // Calculate days since last Sunday
     let daysSinceLastSunday = dayOfWeek;
     
-    // If it's Sunday but before 2:00 AM, the last reset was the previous Sunday
+    // If it's Sunday but before 2:00 AM PKT, the last reset was the previous Sunday
     if (dayOfWeek === 0 && hour < 2) {
         daysSinceLastSunday = 7;
     }
@@ -313,7 +313,8 @@ function getLastWeeklyResetTime() {
     // Create the last reset date (Sunday 2:00 AM PKT)
     const lastReset = new Date(pkt);
     lastReset.setUTCDate(lastReset.getUTCDate() - daysSinceLastSunday);
-    lastReset.setUTCHours(2, 0, 0, 0);
+    // 2:00 AM PKT = 21:00 (9 PM) previous day UTC (PKT is UTC+5)
+    lastReset.setUTCHours(2 - 5, 0, 0, 0); // This will properly adjust to Saturday 21:00 UTC
     
     return lastReset.toISOString();
 }
