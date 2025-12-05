@@ -148,6 +148,151 @@ let pendingRemovals: string[] = [];
 let bannedUserIds: string[] = [];
 let check_ban_list = false;
 
+// Session tracking - tracks when users join the club
+const activeSessions: Map<string, number> = new Map();
+
+// Time tracking data structure for members
+interface MemberTimeData {
+  totalSeconds: number;
+  weeklySeconds: number;
+  monthlySeconds: number;
+  lastWeekReset: string;
+  lastMonthReset: string;
+}
+
+// Get current week number (ISO week)
+function getCurrentWeek(): string {
+  const now = new Date();
+  const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+  const startOfYear = new Date(pakistaniTime.getFullYear(), 0, 1);
+  const days = Math.floor((pakistaniTime.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+  const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+  return `${pakistaniTime.getFullYear()}-W${weekNumber.toString().padStart(2, '0')}`;
+}
+
+// Get current month
+function getCurrentMonth(): string {
+  const now = new Date();
+  const pakistaniTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+  return `${pakistaniTime.getFullYear()}-${(pakistaniTime.getMonth() + 1).toString().padStart(2, '0')}`;
+}
+
+// Handle user joining the club
+function handleUserJoin(uid: string): void {
+  activeSessions.set(uid, Date.now());
+  logger.info(`👋 User joined, tracking session: ${uid.substring(0, 16)}...`);
+}
+
+// Handle user leaving the club and update their time
+async function handleUserLeave(uid: string): Promise<void> {
+  const joinTime = activeSessions.get(uid);
+  if (!joinTime) {
+    logger.warn(`⚠️ No join time found for user: ${uid.substring(0, 16)}...`);
+    return;
+  }
+
+  const sessionDuration = Math.floor((Date.now() - joinTime) / 1000);
+  activeSessions.delete(uid);
+
+  await updateMemberTime(uid, sessionDuration);
+  logger.info(`👋 User left after ${formatDuration(sessionDuration)}: ${uid.substring(0, 16)}...`);
+}
+
+// Format seconds to human readable duration
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${secs}s`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
+// Update member's time tracking data
+async function updateMemberTime(uid: string, sessionSeconds: number): Promise<void> {
+  try {
+    const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+    const members = JSON.parse(data);
+    
+    const memberIndex = members.findIndex((m: any) => m.UID === uid);
+    if (memberIndex === -1) {
+      logger.warn(`⚠️ Member not found for time update: ${uid.substring(0, 16)}...`);
+      return;
+    }
+
+    const member = members[memberIndex];
+    const currentWeek = getCurrentWeek();
+    const currentMonth = getCurrentMonth();
+
+    // Initialize time tracking if not exists
+    if (!member.timeTracking) {
+      member.timeTracking = {
+        totalSeconds: 0,
+        weeklySeconds: 0,
+        monthlySeconds: 0,
+        lastWeekReset: currentWeek,
+        lastMonthReset: currentMonth
+      };
+    }
+
+    // Reset weekly if new week
+    if (member.timeTracking.lastWeekReset !== currentWeek) {
+      member.timeTracking.weeklySeconds = 0;
+      member.timeTracking.lastWeekReset = currentWeek;
+    }
+
+    // Reset monthly if new month
+    if (member.timeTracking.lastMonthReset !== currentMonth) {
+      member.timeTracking.monthlySeconds = 0;
+      member.timeTracking.lastMonthReset = currentMonth;
+    }
+
+    // Add session time
+    member.timeTracking.totalSeconds += sessionSeconds;
+    member.timeTracking.weeklySeconds += sessionSeconds;
+    member.timeTracking.monthlySeconds += sessionSeconds;
+
+    members[memberIndex] = member;
+    await fs.writeFile(MEMBERS_FILE, JSON.stringify(members, null, 2));
+    
+    logger.info(`⏱️ Updated time for ${member.NM}: +${formatDuration(sessionSeconds)} (Weekly: ${formatDuration(member.timeTracking.weeklySeconds)}, Monthly: ${formatDuration(member.timeTracking.monthlySeconds)})`);
+  } catch (error) {
+    logger.error('Error updating member time');
+  }
+}
+
+// Get member time statistics
+function getMemberTimeStats(member: any): { weeklyHours: number; monthlyHours: number; totalHours: number } {
+  const currentWeek = getCurrentWeek();
+  const currentMonth = getCurrentMonth();
+  
+  if (!member.timeTracking) {
+    return { weeklyHours: 0, monthlyHours: 0, totalHours: 0 };
+  }
+
+  let weeklySeconds = member.timeTracking.weeklySeconds || 0;
+  let monthlySeconds = member.timeTracking.monthlySeconds || 0;
+  const totalSeconds = member.timeTracking.totalSeconds || 0;
+
+  // Check if we need to reset (for display purposes)
+  if (member.timeTracking.lastWeekReset !== currentWeek) {
+    weeklySeconds = 0;
+  }
+  if (member.timeTracking.lastMonthReset !== currentMonth) {
+    monthlySeconds = 0;
+  }
+
+  return {
+    weeklyHours: Math.round((weeklySeconds / 3600) * 100) / 100,
+    monthlyHours: Math.round((monthlySeconds / 3600) * 100) / 100,
+    totalHours: Math.round((totalSeconds / 3600) * 100) / 100
+  };
+}
+
 // OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
