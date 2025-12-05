@@ -1,8 +1,9 @@
-import { Moon, Sun, LogOut, User } from "lucide-react";
+import { Moon, Sun, LogOut, User, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useTheme } from "@/components/theme-provider";
-import { useAuth } from "@/lib/auth";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -13,13 +14,36 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface BotStatus {
+  success: boolean;
+  connected: boolean;
+  connecting: boolean;
+  clubCode: string;
+  clubName: string;
+  uptime: number;
+}
+
 export function TopBar() {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
 
+  const { data: status } = useQuery<BotStatus>({
+    queryKey: ["/api/jack/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/jack/status", {
+        headers: getAuthHeaders(),
+      });
+      return res.json();
+    },
+    refetchInterval: 5000,
+  });
+
   const handleLogout = async () => {
     await logout();
   };
+
+  const isConnected = status?.connected === true;
+  const isConnecting = status?.connecting === true;
 
   return (
     <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background px-4 gap-4">
@@ -27,10 +51,22 @@ export function TopBar() {
         <SidebarTrigger data-testid="button-sidebar-toggle" />
       </div>
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 rounded-md bg-green-100 dark:bg-green-900/30 px-3 py-1.5" data-testid="status-indicator">
-          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-sm font-medium text-green-700 dark:text-green-400">Bot Running</span>
-        </div>
+        {isConnecting ? (
+          <div className="flex items-center gap-2 rounded-md bg-yellow-100 dark:bg-yellow-900/30 px-3 py-1.5" data-testid="status-indicator">
+            <Loader2 className="h-4 w-4 text-yellow-600 dark:text-yellow-400 animate-spin" />
+            <span className="text-sm font-medium text-yellow-700 dark:text-yellow-400">Connecting...</span>
+          </div>
+        ) : isConnected ? (
+          <div className="flex items-center gap-2 rounded-md bg-green-100 dark:bg-green-900/30 px-3 py-1.5" data-testid="status-indicator">
+            <Wifi className="h-4 w-4 text-green-600 dark:text-green-400" />
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">Connected</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-md bg-red-100 dark:bg-red-900/30 px-3 py-1.5" data-testid="status-indicator">
+            <WifiOff className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <span className="text-sm font-medium text-red-700 dark:text-red-400">Disconnected</span>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon"
