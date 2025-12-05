@@ -80,12 +80,16 @@ Preferred communication style: Simple, everyday language.
 
 **User Session Time Tracking**: `club_members.json` tracks member time spent in the club. When users join (`PU: 'UJ'`), their join timestamp is recorded in an `activeSessions` Map. When they leave (`PU: 'UL'`), session duration is calculated and added to their `timeTracking` object with fields:
 - `totalSeconds`: All-time seconds spent in club
-- `weeklySeconds`: Seconds this week (resets Sunday 12:00 AM PKT)
+- `dailySeconds`: Seconds today (resets daily at 12:00 AM PKT)
+- `weeklySeconds`: Seconds this week (resets Sunday 2:00 AM PKT)
 - `monthlySeconds`: Seconds this month (resets 1st of each month 12:00 AM PKT)
+- `lastDayReset`: ISO date of last daily reset
 - `lastWeekReset`: ISO date of last weekly reset
 - `lastMonthReset`: ISO date of last monthly reset
 
 API endpoints `/api/jack/member-time/:uid` and `/api/jack/members-time` provide time statistics. Dashboard Members page displays weekly/monthly hours as badges.
+
+**Top Active Members**: The `/api/jack/top-active` endpoint returns the top 3 most active members for daily, weekly, and monthly periods based on time spent in the club. The Overview page displays these in a "Top Active Members" section with three cards.
 
 **Configuration Files**: Text-based lists (comma-separated or line-separated) for admins, spam words, banned patterns, exemptions, and loyal members. Simple format allows manual editing if needed.
 
