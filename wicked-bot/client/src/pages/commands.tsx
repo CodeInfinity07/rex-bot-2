@@ -91,6 +91,14 @@ export default function Commands() {
               <code className="font-mono bg-muted px-2 py-1 rounded min-w-[140px]">/joinMic</code>
               <p className="text-muted-foreground">Make the bot join a mic</p>
             </div>
+            <div className="flex gap-3">
+              <code className="font-mono bg-muted px-2 py-1 rounded min-w-[140px]">/mtop</code>
+              <p className="text-muted-foreground">Display top 10 members by time spent this month</p>
+            </div>
+            <div className="flex gap-3">
+              <code className="font-mono bg-muted px-2 py-1 rounded min-w-[140px]">/wtop</code>
+              <p className="text-muted-foreground">Display top 10 members by time spent this week</p>
+            </div>
           </div>
         </CardContent>
       </Card>
