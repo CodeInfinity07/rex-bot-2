@@ -154,8 +154,10 @@ const activeSessions: Map<string, number> = new Map();
 // Time tracking data structure for members
 interface MemberTimeData {
   totalSeconds: number;
+  dailySeconds: number;
   weeklySeconds: number;
   monthlySeconds: number;
+  lastDayReset: string;
   lastWeekReset: string;
   lastMonthReset: string;
 }
@@ -202,6 +204,28 @@ function getLastMonthlyResetTime(): string {
   lastReset.setUTCHours(-5);
   
   return lastReset.toISOString();
+}
+
+// Get the last daily reset time (12:00 AM PKT)
+function getLastDailyResetTime(): string {
+  const pkt = getPakistaniTime();
+  
+  // Create today's midnight in PKT
+  const lastReset = new Date(Date.UTC(
+    pkt.getUTCFullYear(),
+    pkt.getUTCMonth(),
+    pkt.getUTCDate(),
+    0, 0, 0, 0
+  ));
+  // Adjust for PKT (UTC+5) - midnight PKT is 7PM previous day UTC
+  lastReset.setUTCHours(-5);
+  
+  return lastReset.toISOString();
+}
+
+// Get current day identifier for tracking (based on midnight PKT reset)
+function getCurrentDay(): string {
+  return getLastDailyResetTime();
 }
 
 // Get current week identifier for tracking (based on Sunday 2:00 AM PKT reset)
