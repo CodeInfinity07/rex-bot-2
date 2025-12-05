@@ -9,7 +9,12 @@ import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
 import bcrypt from 'bcryptjs';
 
-// Auth configuration - loaded from Replit Secrets (environment variables)
+// Load environment variables from root .env file (where bot.js is located)
+// The wicked-bot server runs from wicked-bot/ directory, so we go up one level
+const rootEnvPath = path.join(process.cwd(), '..', '.env');
+dotenv.config({ path: rootEnvPath });
+
+// Auth configuration - loaded from root .env file
 const OWNER_ID = process.env.OWNER_ID;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 const MODERATORS_FILE = path.join(process.cwd(), 'data', 'moderators.json');
