@@ -78,6 +78,15 @@ Preferred communication style: Simple, everyday language.
 
 **Daily Message Counter**: `data/message_counter.json` tracks daily message count with automatic reset at 12:00 AM Pakistani time (UTC+5). Structure: `{ count: number, date: "YYYY-MM-DD" }`. Counter increments when WebSocket messages containing `PY.MG` field are received.
 
+**User Session Time Tracking**: `club_members.json` tracks member time spent in the club. When users join (`PU: 'UJ'`), their join timestamp is recorded in an `activeSessions` Map. When they leave (`PU: 'UL'`), session duration is calculated and added to their `timeTracking` object with fields:
+- `totalSeconds`: All-time seconds spent in club
+- `weeklySeconds`: Seconds this week (resets Sunday 12:00 AM PKT)
+- `monthlySeconds`: Seconds this month (resets 1st of each month 12:00 AM PKT)
+- `lastWeekReset`: ISO date of last weekly reset
+- `lastMonthReset`: ISO date of last monthly reset
+
+API endpoints `/api/jack/member-time/:uid` and `/api/jack/members-time` provide time statistics. Dashboard Members page displays weekly/monthly hours as badges.
+
 **Configuration Files**: Text-based lists (comma-separated or line-separated) for admins, spam words, banned patterns, exemptions, and loyal members. Simple format allows manual editing if needed.
 
 ### Security Considerations
