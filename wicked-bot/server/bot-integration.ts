@@ -1383,6 +1383,94 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
+  // Change own password (for moderators)
+  app.post('/api/jack/change-password', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.json({ success: false, message: 'Current and new password are required' });
+      }
+      
+      if (newPassword.length < 4) {
+        return res.json({ success: false, message: 'New password must be at least 4 characters' });
+      }
+      
+      if (req.user?.role === 'owner') {
+        // Owner cannot change password through this endpoint (it's stored in env)
+        return res.json({ success: false, message: 'Owner password is managed through environment variables' });
+      }
+      
+      // Moderator changing their own password
+      const moderators = await loadModerators();
+      const moderator = moderators.find(m => m.username === req.user?.userId);
+      
+      if (!moderator) {
+        return res.json({ success: false, message: 'Moderator not found' });
+      }
+      
+      // Verify current password
+      const isValidPassword = moderator.passwordHash 
+        ? await bcrypt.compare(currentPassword, moderator.passwordHash)
+        : moderator.password === currentPassword;
+      
+      if (!isValidPassword) {
+        return res.json({ success: false, message: 'Current password is incorrect' });
+      }
+      
+      // Hash and save new password
+      moderator.passwordHash = await bcrypt.hash(newPassword, 10);
+      delete moderator.password; // Remove legacy plaintext if exists
+      
+      await saveModerators(moderators);
+      
+      await logActivity(req.user!.userId, 'moderator', 'CHANGE_PASSWORD', { 
+        message: 'Changed own password' 
+      });
+      
+      res.json({ success: true, message: 'Password changed successfully' });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to change password' });
+    }
+  });
+
+  // Owner changes moderator password
+  app.post('/api/jack/moderators/:id/change-password', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { newPassword } = req.body;
+      
+      if (!newPassword) {
+        return res.json({ success: false, message: 'New password is required' });
+      }
+      
+      if (newPassword.length < 4) {
+        return res.json({ success: false, message: 'Password must be at least 4 characters' });
+      }
+      
+      const moderators = await loadModerators();
+      const moderator = moderators.find(m => m.id === id);
+      
+      if (!moderator) {
+        return res.json({ success: false, message: 'Moderator not found' });
+      }
+      
+      // Hash and save new password
+      moderator.passwordHash = await bcrypt.hash(newPassword, 10);
+      delete moderator.password; // Remove legacy plaintext if exists
+      
+      await saveModerators(moderators);
+      
+      await logActivity(req.user!.userId, 'owner', 'CHANGE_MODERATOR_PASSWORD', { 
+        moderatorUsername: moderator.username 
+      });
+      
+      res.json({ success: true, message: 'Password changed successfully' });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to change password' });
+    }
+  });
+
   // Get activity logs (owner only)
   app.get('/api/jack/activity-logs', authMiddleware, ownerOnly, async (req: AuthRequest, res) => {
     try {

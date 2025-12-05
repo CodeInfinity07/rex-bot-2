@@ -15,7 +15,8 @@ import {
   Lock,
   Calendar,
   Eye,
-  EyeOff
+  EyeOff,
+  Key
 } from "lucide-react";
 import {
   Dialog,
@@ -65,6 +66,12 @@ export default function Moderators() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [selectedModerator, setSelectedModerator] = useState<Moderator | null>(null);
+  const [changePassword, setChangePassword] = useState("");
+  const [confirmChangePassword, setConfirmChangePassword] = useState("");
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const { data, isLoading } = useQuery<ModeratorsResponse>({
     queryKey: ["/api/jack/moderators"],
@@ -126,6 +133,32 @@ export default function Moderators() {
     },
   });
 
+  const changePasswordMutation = useMutation({
+    mutationFn: async ({ id, newPassword }: { id: string; newPassword: string }) => {
+      const res = await fetch(`/api/jack/moderators/${id}/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ newPassword }),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "Success", description: "Password changed successfully" });
+        setIsPasswordDialogOpen(false);
+        resetPasswordForm();
+      } else {
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to change password", variant: "destructive" });
+    },
+  });
+
   const handleCreate = () => {
     if (!newUsername || !newPassword) {
       toast({ title: "Error", description: "Username and password are required", variant: "destructive" });
@@ -136,6 +169,36 @@ export default function Moderators() {
       return;
     }
     createMutation.mutate({ username: newUsername, password: newPassword });
+  };
+
+  const resetPasswordForm = () => {
+    setSelectedModerator(null);
+    setChangePassword("");
+    setConfirmChangePassword("");
+    setShowChangePassword(false);
+  };
+
+  const handleChangePassword = () => {
+    if (!changePassword || !confirmChangePassword) {
+      toast({ title: "Error", description: "Both password fields are required", variant: "destructive" });
+      return;
+    }
+    if (changePassword !== confirmChangePassword) {
+      toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (changePassword.length < 4) {
+      toast({ title: "Error", description: "Password must be at least 4 characters", variant: "destructive" });
+      return;
+    }
+    if (selectedModerator) {
+      changePasswordMutation.mutate({ id: selectedModerator.id, newPassword: changePassword });
+    }
+  };
+
+  const openPasswordDialog = (mod: Moderator) => {
+    setSelectedModerator(mod);
+    setIsPasswordDialogOpen(true);
   };
 
   if (!isOwner) {
@@ -279,37 +342,104 @@ export default function Moderators() {
                     </div>
                   </div>
                   
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Moderator</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete "{mod.username}"? This will immediately 
-                          revoke their access to the dashboard.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => deleteMutation.mutate(mod.id)}
-                          className="bg-destructive hover:bg-destructive/90"
-                        >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  <div className="flex items-center gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => openPasswordDialog(mod)}
+                      title="Change password"
+                    >
+                      <Key className="h-4 w-4" />
+                    </Button>
+                    
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Moderator</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{mod.username}"? This will immediately 
+                            revoke their access to the dashboard.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteMutation.mutate(mod.id)}
+                            className="bg-destructive hover:bg-destructive/90"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={isPasswordDialogOpen} onOpenChange={(open) => {
+        setIsPasswordDialogOpen(open);
+        if (!open) resetPasswordForm();
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {selectedModerator?.username}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showChangePassword ? "text" : "password"}
+                  placeholder="Enter new password"
+                  value={changePassword}
+                  onChange={(e) => setChangePassword(e.target.value)}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowChangePassword(!showChangePassword)}
+                >
+                  {showChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-new-password">Confirm New Password</Label>
+              <Input
+                id="confirm-new-password"
+                type="password"
+                placeholder="Confirm new password"
+                value={confirmChangePassword}
+                onChange={(e) => setConfirmChangePassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleChangePassword} disabled={changePasswordMutation.isPending}>
+              {changePasswordMutation.isPending ? "Changing..." : "Change Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
