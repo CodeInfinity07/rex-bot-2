@@ -476,18 +476,23 @@ async function updateMemberTime(uid, sessionSeconds) {
 
 // Get member time statistics
 function getMemberTimeStats(member) {
+    const currentDay = getCurrentDay();
     const currentWeek = getCurrentWeek();
     const currentMonth = getCurrentMonth();
     
     if (!member.timeTracking) {
-        return { weeklyHours: 0, monthlyHours: 0, totalHours: 0 };
+        return { dailyHours: 0, weeklyHours: 0, monthlyHours: 0, totalHours: 0 };
     }
 
+    let dailySeconds = member.timeTracking.dailySeconds || 0;
     let weeklySeconds = member.timeTracking.weeklySeconds || 0;
     let monthlySeconds = member.timeTracking.monthlySeconds || 0;
     const totalSeconds = member.timeTracking.totalSeconds || 0;
 
     // Check if we need to reset (for display purposes)
+    if (member.timeTracking.lastDayReset !== currentDay) {
+        dailySeconds = 0;
+    }
     if (member.timeTracking.lastWeekReset !== currentWeek) {
         weeklySeconds = 0;
     }
@@ -496,6 +501,7 @@ function getMemberTimeStats(member) {
     }
 
     return {
+        dailyHours: Math.round((dailySeconds / 3600) * 100) / 100,
         weeklyHours: Math.round((weeklySeconds / 3600) * 100) / 100,
         monthlyHours: Math.round((monthlySeconds / 3600) * 100) / 100,
         totalHours: Math.round((totalSeconds / 3600) * 100) / 100
@@ -1452,6 +1458,54 @@ app.get('/api/jack/members-time', async (req, res) => {
     } catch (error) {
         logger.error('Error getting members time:', error.message);
         res.json({ success: false, message: error.message });
+    }
+});
+
+// Get top 3 active users for daily, weekly, and monthly
+app.get('/api/jack/top-active', async (req, res) => {
+    try {
+        const data = await fs.readFile(MEMBERS_FILE, 'utf8');
+        const members = JSON.parse(data);
+        
+        const membersWithTime = members.map(member => {
+            const timeStats = getMemberTimeStats(member);
+            return {
+                uid: member.UID,
+                name: member.NM,
+                level: member.LVL,
+                dailyHours: timeStats.dailyHours,
+                weeklyHours: timeStats.weeklyHours,
+                monthlyHours: timeStats.monthlyHours
+            };
+        });
+
+        // Get top 3 for each period
+        const topDaily = [...membersWithTime]
+            .filter(m => m.dailyHours > 0)
+            .sort((a, b) => b.dailyHours - a.dailyHours)
+            .slice(0, 3);
+
+        const topWeekly = [...membersWithTime]
+            .filter(m => m.weeklyHours > 0)
+            .sort((a, b) => b.weeklyHours - a.weeklyHours)
+            .slice(0, 3);
+
+        const topMonthly = [...membersWithTime]
+            .filter(m => m.monthlyHours > 0)
+            .sort((a, b) => b.monthlyHours - a.monthlyHours)
+            .slice(0, 3);
+        
+        res.json({
+            success: true,
+            data: {
+                daily: topDaily,
+                weekly: topWeekly,
+                monthly: topMonthly
+            }
+        });
+    } catch (error) {
+        logger.error('Error getting top active users:', error.message);
+        res.json({ success: false, message: error.message, data: { daily: [], weekly: [], monthly: [] } });
     }
 });
 
