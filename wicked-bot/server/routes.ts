@@ -110,24 +110,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Update BOT_UID environment variable
+  // Update BOT_UID environment variable (password protected)
   app.post('/api/jack/update-bot-uid', async (req, res) => {
     try {
-      const { botUid } = req.body;
+      const { botUid, password } = req.body;
+      
+      // Password protection for sensitive operation
+      const DEVELOPER_PASSWORD = 'aa00aa00';
+      if (password !== DEVELOPER_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+      }
       
       if (!botUid || typeof botUid !== 'string' || botUid.trim() === '') {
         return res.json({ success: false, message: 'Bot UID is required' });
       }
 
-      // Update the environment variable in memory
-      process.env.BOT_UID = botUid.trim();
+      const newBotUid = botUid.trim();
       
-      console.log(`[BOT] Bot UID updated to: ${botUid.trim()}`);
+      // Update the environment variable in memory
+      process.env.BOT_UID = newBotUid;
+      
+      // Update root .env file
+      try {
+        const envPath = path.join(process.cwd(), '..', '.env');
+        let envContent = '';
+        try {
+          envContent = await fs.readFile(envPath, 'utf8');
+        } catch (e) {
+          envContent = '';
+        }
+        
+        if (envContent.includes('BOT_UID=')) {
+          envContent = envContent.replace(/BOT_UID=.*/g, `BOT_UID=${newBotUid}`);
+        } else {
+          envContent += `\nBOT_UID=${newBotUid}`;
+        }
+        
+        await fs.writeFile(envPath, envContent.trim() + '\n');
+      } catch (envError: any) {
+        console.error('Failed to update .env file:', envError.message);
+      }
+      
+      console.log(`[BOT] Bot UID updated to: ${newBotUid}`);
       
       res.json({ 
         success: true, 
         message: 'Bot UID updated successfully',
-        data: { botUid: botUid.trim() }
+        data: { botUid: newBotUid }
       });
     } catch (error: any) {
       console.error('Error updating Bot UID:', error);

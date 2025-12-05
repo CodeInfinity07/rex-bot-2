@@ -830,6 +830,60 @@ app.get('/api/jack/club-info', (req, res) => {
     });
 });
 
+app.post('/api/jack/update-bot-uid', async (req, res) => {
+    try {
+        const { botUid, password } = req.body;
+        
+        // Password protection for sensitive operation
+        const DEVELOPER_PASSWORD = 'aa00aa00';
+        if (password !== DEVELOPER_PASSWORD) {
+            return res.json({ success: false, message: 'Invalid password' });
+        }
+        
+        if (!botUid || typeof botUid !== 'string' || botUid.trim() === '') {
+            return res.json({ success: false, message: 'Bot UID is required' });
+        }
+
+        const newBotUid = botUid.trim();
+        
+        // Update in memory
+        my_uid = newBotUid;
+        process.env.BOT_UID = newBotUid;
+        
+        // Update .env file
+        try {
+            const envPath = './.env';
+            let envContent = '';
+            try {
+                envContent = await fs.readFile(envPath, 'utf8');
+            } catch (e) {
+                envContent = '';
+            }
+            
+            // Update or add BOT_UID
+            if (envContent.includes('BOT_UID=')) {
+                envContent = envContent.replace(/BOT_UID=.*/g, `BOT_UID=${newBotUid}`);
+            } else {
+                envContent += `\nBOT_UID=${newBotUid}`;
+            }
+            
+            await fs.writeFile(envPath, envContent.trim() + '\n');
+            logger.info(`✅ Bot UID updated to: ${newBotUid}`);
+        } catch (envError) {
+            logger.error('Failed to update .env file:', envError.message);
+        }
+        
+        res.json({ 
+            success: true, 
+            message: 'Bot UID updated successfully',
+            data: { botUid: newBotUid }
+        });
+    } catch (error) {
+        logger.error('Error updating Bot UID:', error.message);
+        res.json({ success: false, message: error.message || 'Failed to update Bot UID' });
+    }
+});
+
 app.get('/api/jack/tone-templates', async (req, res) => {
     try {
         const data = await fs.readFile('./tone_templates.json', 'utf8');
