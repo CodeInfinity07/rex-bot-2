@@ -45,7 +45,7 @@ export function AppSidebar() {
             <Gamepad2 className="h-6 w-6" />
           </div>
           <div>
-            <h2 className="text-base font-semibold">RexSquad Bot</h2>
+            <h2 className="text-base font-semibold">Bot</h2>
             <p className="text-xs text-muted-foreground">Manager</p>
           </div>
         </div>
