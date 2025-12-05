@@ -1,41 +1,232 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, Activity } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useAuth, getAuthHeaders } from "@/lib/auth";
+import { useLocation } from "wouter";
+import { 
+  Clock, 
+  Activity, 
+  LogIn, 
+  LogOut, 
+  UserPlus, 
+  UserMinus, 
+  Settings, 
+  Shield, 
+  ChevronLeft, 
+  ChevronRight,
+  Lock
+} from "lucide-react";
+
+interface ActivityLog {
+  id: string;
+  userId: string;
+  userRole: "owner" | "moderator";
+  action: string;
+  details: Record<string, unknown>;
+  timestamp: string;
+}
+
+interface ActivityLogsResponse {
+  success: boolean;
+  data: {
+    logs: ActivityLog[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  };
+}
+
+const actionIcons: Record<string, typeof Activity> = {
+  LOGIN: LogIn,
+  LOGOUT: LogOut,
+  CREATE_MODERATOR: UserPlus,
+  DELETE_MODERATOR: UserMinus,
+  UPDATE_SETTINGS: Settings,
+  UPDATE_PROTECTION: Shield,
+};
+
+const actionColors: Record<string, string> = {
+  LOGIN: "bg-green-500/10 text-green-500",
+  LOGOUT: "bg-gray-500/10 text-gray-500",
+  CREATE_MODERATOR: "bg-blue-500/10 text-blue-500",
+  DELETE_MODERATOR: "bg-red-500/10 text-red-500",
+  UPDATE_SETTINGS: "bg-yellow-500/10 text-yellow-500",
+  UPDATE_PROTECTION: "bg-purple-500/10 text-purple-500",
+};
+
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function formatActionDetails(action: string, details: Record<string, unknown>): string {
+  switch (action) {
+    case "LOGIN":
+      return "Logged into the dashboard";
+    case "LOGOUT":
+      return "Logged out of the dashboard";
+    case "CREATE_MODERATOR":
+      return `Created moderator: ${details.moderatorUsername}`;
+    case "DELETE_MODERATOR":
+      return `Deleted moderator: ${details.moderatorUsername}`;
+    case "UPDATE_SETTINGS":
+      return `Updated settings: ${details.setting || "general"}`;
+    case "UPDATE_PROTECTION":
+      return `Modified protection rules`;
+    default:
+      return details.message as string || action;
+  }
+}
 
 export default function ActivityLogs() {
+  const { isOwner } = useAuth();
+  const [, setLocation] = useLocation();
+  const [page, setPage] = useState(1);
+  const limit = 15;
+
+  const { data, isLoading, isError } = useQuery<ActivityLogsResponse>({
+    queryKey: [`/api/jack/activity-logs?page=${page}&limit=${limit}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/jack/activity-logs?page=${page}&limit=${limit}`, {
+        headers: getAuthHeaders(),
+      });
+      return res.json();
+    },
+    enabled: isOwner,
+  });
+
+  if (!isOwner) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold" data-testid="heading-logs">Activity Logs</h1>
+          <p className="text-muted-foreground mt-1">Moderator activity and change history</p>
+        </div>
+
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Lock className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Owner Access Required</h3>
+            <p className="text-muted-foreground text-center max-w-md">
+              Activity logs are only accessible to the owner. This section shows all changes 
+              made by moderators to the dashboard settings.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const logs = data?.data?.logs || [];
+  const pagination = data?.data?.pagination;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold" data-testid="heading-logs">Activity Logs</h1>
-        <p className="text-muted-foreground mt-1">Real-time bot activity and events</p>
+        <p className="text-muted-foreground mt-1">Track all moderator activities and changes</p>
       </div>
 
-      <Card className="border-dashed">
+      <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-blue-500" />
-            <CardTitle>Coming Soon</CardTitle>
+            <Activity className="h-5 w-5 text-primary" />
+            <CardTitle>Recent Activity</CardTitle>
           </div>
           <CardDescription>
-            Activity logging feature is currently under development
+            All login/logout events and setting changes by moderators
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-start gap-3">
-            <Activity className="h-5 w-5 text-muted-foreground mt-0.5" />
-            <div>
-              <p className="text-sm font-medium mb-2">Planned Features:</p>
-              <ul className="space-y-1.5 text-sm text-muted-foreground">
-                <li>• Real-time activity monitoring</li>
-                <li>• User join/leave notifications</li>
-                <li>• Message moderation logs</li>
-                <li>• Bot command execution history</li>
-                <li>• Kick/ban event tracking</li>
-              </ul>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
-          </div>
-          <p className="text-sm text-muted-foreground mt-4 pt-4 border-t">
-            This feature will be available in an upcoming update. Stay tuned!
-          </p>
+          ) : isError ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Failed to load activity logs
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No activity logs yet
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {logs.map((log) => {
+                const IconComponent = actionIcons[log.action] || Activity;
+                const colorClass = actionColors[log.action] || "bg-gray-500/10 text-gray-500";
+
+                return (
+                  <div
+                    key={log.id}
+                    className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                  >
+                    <div className={`p-2 rounded-full ${colorClass}`}>
+                      <IconComponent className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">{log.userId}</span>
+                        <Badge variant={log.userRole === "owner" ? "default" : "secondary"}>
+                          {log.userRole}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {formatActionDetails(log.action, log.details)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                      <Clock className="h-3 w-3" />
+                      {formatTimestamp(log.timestamp)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {pagination && pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t">
+              <p className="text-sm text-muted-foreground">
+                Showing {(page - 1) * limit + 1} - {Math.min(page * limit, pagination.total)} of {pagination.total}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm px-2">
+                  Page {page} of {pagination.totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
+                  disabled={page >= pagination.totalPages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

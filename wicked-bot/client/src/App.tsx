@@ -20,6 +20,7 @@ import Protection from "@/pages/protection";
 import Exemptions from "@/pages/exemptions";
 import LoyalMembers from "@/pages/loyal-members";
 import ActivityLogs from "@/pages/activity-logs";
+import Moderators from "@/pages/moderators";
 
 function ProtectedRoutes() {
   return (
@@ -34,6 +35,7 @@ function ProtectedRoutes() {
       <Route path="/loyal-members" component={LoyalMembers} />
       <Route path="/players" component={PlayerLookup} />
       <Route path="/commands" component={Commands} />
+      <Route path="/moderators" component={Moderators} />
       <Route path="/logs" component={ActivityLogs} />
       <Route component={Overview} />
     </Switch>

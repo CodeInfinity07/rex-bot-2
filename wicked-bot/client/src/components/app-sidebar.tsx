@@ -1,5 +1,6 @@
-import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Terminal } from "lucide-react";
+import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { useAuth } from "@/lib/auth";
 import {
   Sidebar,
   SidebarContent,
@@ -24,12 +25,17 @@ const menuItems = [
   { title: "Loyal Members", url: "/loyal-members", icon: Star },
   { title: "Players", url: "/players", icon: UserSearch },
   { title: "Commands", url: "/commands", icon: Command },
-  { title: "Activity Logs", url: "/logs", icon: Terminal },
+];
+
+const ownerOnlyItems = [
+  { title: "Moderators", url: "/moderators", icon: UserCog },
+  { title: "Activity Logs", url: "/logs", icon: Activity },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { setOpenMobile, isMobile } = useSidebar();
+  const { isOwner } = useAuth();
 
   const handleNavClick = () => {
     if (isMobile) {
@@ -68,6 +74,26 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {isOwner && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Owner Only</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {ownerOnlyItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={location === item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <Link href={item.url} onClick={handleNavClick}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   );
