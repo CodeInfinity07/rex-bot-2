@@ -10,6 +10,7 @@ const axios = require('axios');
 const { error } = require('winston');
 const mysql = require('mysql2/promise');
 const WebSocket = require('ws');
+const bcrypt = require('bcryptjs');
 
 require('dotenv').config();
 
@@ -37,12 +38,12 @@ const logger = {
     warn: (message) => console.warn(`[WARN] ${message}`)
 };
 
-// MySQL Configuration
+// MySQL Configuration - all credentials from environment variables
 const MYSQL_CONFIG = {
-    host: process.env.MYSQL_HOST || '94.72.106.77',
-    user: process.env.MYSQL_USER || 'ryzon',
-    password: process.env.MYSQL_PASSWORD || 'zain0980',
-    database: 'ivex',
+    host: process.env.MYSQL_HOST,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DATABASE || 'ivex',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -1108,9 +1109,17 @@ app.post('/api/jack/login', async (req, res) => {
         
         // Check if moderator
         const moderators = await loadModerators();
-        const moderator = moderators.find(m => m.username === username && m.password === password);
+        const moderator = moderators.find(m => m.username === username);
         
         if (moderator) {
+            // Verify password with bcrypt (handles both hashed and legacy plaintext)
+            const isValidPassword = moderator.passwordHash 
+                ? await bcrypt.compare(password, moderator.passwordHash)
+                : moderator.password === password;
+            
+            if (!isValidPassword) {
+                return res.status(401).json({ success: false, message: 'Invalid credentials' });
+            }
             const token = generateSessionToken();
             sessions.set(token, {
                 userId: username,
@@ -1190,6 +1199,10 @@ app.post('/api/jack/moderators', authMiddleware, ownerOnly, async (req, res) => 
             return res.json({ success: false, message: 'Username and password are required' });
         }
         
+        if (password.length < 4) {
+            return res.json({ success: false, message: 'Password must be at least 4 characters' });
+        }
+        
         if (username === OWNER_ID) {
             return res.json({ success: false, message: 'Cannot use owner username' });
         }
@@ -1200,10 +1213,13 @@ app.post('/api/jack/moderators', authMiddleware, ownerOnly, async (req, res) => 
             return res.json({ success: false, message: 'Username already exists' });
         }
         
+        // Hash password with bcrypt (10 rounds of salting)
+        const passwordHash = await bcrypt.hash(password, 10);
+        
         const newModerator = {
             id: crypto.randomUUID(),
             username,
-            password,
+            passwordHash,
             createdAt: new Date().toISOString()
         };
         
