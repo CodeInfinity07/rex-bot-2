@@ -819,6 +819,17 @@ app.get('/api/jack/message-count', (req, res) => {
     });
 });
 
+app.get('/api/jack/club-info', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            clubName: club_name || 'Not Set',
+            clubCode: club_code || 'Not Set',
+            botUid: my_uid || 'Not Set'
+        }
+    });
+});
+
 app.get('/api/jack/tone-templates', async (req, res) => {
     try {
         const data = await fs.readFile('./tone_templates.json', 'utf8');
