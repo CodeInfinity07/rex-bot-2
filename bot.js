@@ -1321,6 +1321,8 @@ app.get('/api/jack/members', async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchQuery = req.query.search || '';
+        const sortBy = req.query.sortBy || '';
+        const sortOrder = req.query.sortOrder || 'desc';
 
         if (page < 1 || limit < 1 || limit > 100) {
             return res.json({
@@ -1345,6 +1347,31 @@ app.get('/api/jack/members', async (req, res) => {
             mediumLevel: allMembers.filter(m => m.LVL >= 5 && m.LVL <= 9).length,
             lowLevel: allMembers.filter(m => m.LVL >= 1 && m.LVL <= 4).length
         };
+
+        // Sort by time if requested
+        if (sortBy === 'dailyTime' || sortBy === 'weeklyTime' || sortBy === 'monthlyTime') {
+            const currentDay = getCurrentDay();
+            const currentWeek = getCurrentWeek();
+            const currentMonth = getCurrentMonth();
+            
+            allMembers.sort((a, b) => {
+                let aSeconds = 0;
+                let bSeconds = 0;
+                
+                if (sortBy === 'dailyTime') {
+                    aSeconds = (a.timeTracking?.lastDayReset === currentDay) ? (a.timeTracking?.dailySeconds || 0) : 0;
+                    bSeconds = (b.timeTracking?.lastDayReset === currentDay) ? (b.timeTracking?.dailySeconds || 0) : 0;
+                } else if (sortBy === 'weeklyTime') {
+                    aSeconds = (a.timeTracking?.lastWeekReset === currentWeek) ? (a.timeTracking?.weeklySeconds || 0) : 0;
+                    bSeconds = (b.timeTracking?.lastWeekReset === currentWeek) ? (b.timeTracking?.weeklySeconds || 0) : 0;
+                } else if (sortBy === 'monthlyTime') {
+                    aSeconds = (a.timeTracking?.lastMonthReset === currentMonth) ? (a.timeTracking?.monthlySeconds || 0) : 0;
+                    bSeconds = (b.timeTracking?.lastMonthReset === currentMonth) ? (b.timeTracking?.monthlySeconds || 0) : 0;
+                }
+                
+                return sortOrder === 'asc' ? aSeconds - bSeconds : bSeconds - aSeconds;
+            });
+        }
 
         const startIndex = (page - 1) * limit;
         const endIndex = startIndex + limit;

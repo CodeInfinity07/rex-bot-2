@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Search, Users, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, Clock } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Trash2, Search, Users, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, Clock, ArrowUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -45,6 +46,8 @@ export default function Members() {
   const [bulkLevel, setBulkLevel] = useState("");
   const [bulkCount, setBulkCount] = useState("");
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const limit = 10;
   const { toast } = useToast();
 
@@ -63,6 +66,10 @@ export default function Members() {
     params.append("limit", limit.toString());
     if (debouncedSearch) {
       params.append("search", debouncedSearch);
+    }
+    if (sortBy) {
+      params.append("sortBy", sortBy);
+      params.append("sortOrder", sortOrder);
     }
     return `/api/jack/members?${params.toString()}`;
   };
@@ -140,6 +147,16 @@ export default function Members() {
 
   const handleSearch = (value: string) => {
     setSearchQuery(value);
+    setPage(1);
+  };
+
+  const handleSortChange = (value: string) => {
+    setSortBy(value === "none" ? "" : value);
+    setPage(1);
+  };
+
+  const toggleSortOrder = () => {
+    setSortOrder(prev => prev === "asc" ? "desc" : "asc");
     setPage(1);
   };
 
@@ -381,20 +398,45 @@ export default function Members() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search members..."
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-members"
-            />
-            {isFetching && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
-              </div>
-            )}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search members..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-members"
+              />
+              {isFetching && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Select value={sortBy} onValueChange={handleSortChange}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Sort by time" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No sorting</SelectItem>
+                  <SelectItem value="dailyTime">Daily Time</SelectItem>
+                  <SelectItem value="weeklyTime">Weekly Time</SelectItem>
+                  <SelectItem value="monthlyTime">Monthly Time</SelectItem>
+                </SelectContent>
+              </Select>
+              {sortBy && sortBy !== "none" && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={toggleSortOrder}
+                  title={sortOrder === "desc" ? "Highest first" : "Lowest first"}
+                >
+                  <ArrowUpDown className={`h-4 w-4 ${sortOrder === "asc" ? "rotate-180" : ""}`} />
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-3">
