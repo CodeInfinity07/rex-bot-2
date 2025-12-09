@@ -218,6 +218,39 @@ const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
 const AGORA_TOKEN = process.env.AGORA_TOKEN;
 const AGORA_USER_ID = process.env.AGORA_USER_ID;
 
+// Dashboard control configuration (for bot.js -> dashboard communication)
+const DASHBOARD_URL = process.env.DASHBOARD_URL || '';
+const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
+
+// Helper function to send stream control to dashboard
+async function sendStreamControlToDashboard(action, songIndex = undefined) {
+    if (!DASHBOARD_URL) {
+        logger.warn('DASHBOARD_URL not configured, skipping dashboard notification');
+        return false;
+    }
+    
+    try {
+        const response = await axios.post(`${DASHBOARD_URL}/api/jack/stream-control/service`, {
+            secret: BOT_CONTROL_SECRET,
+            action,
+            songIndex
+        }, {
+            timeout: 5000
+        });
+        
+        if (response.data.success) {
+            logger.info(`✅ Stream control sent to dashboard: ${action}`);
+            return true;
+        } else {
+            logger.error(`❌ Dashboard stream control failed: ${response.data.message}`);
+            return false;
+        }
+    } catch (error) {
+        logger.error(`❌ Failed to send stream control to dashboard: ${error.message}`);
+        return false;
+    }
+}
+
 // Ensure songs directory exists
 async function ensureSongsDir() {
     try {
@@ -2619,6 +2652,152 @@ app.get('/api/jack/songs/file/:filename', async (req, res) => {
 // STREAM API ENDPOINTS
 // ====================
 
+// Stream state for playback control
+const streamState = {
+    status: 'stopped', // 'playing', 'paused', 'stopped'
+    currentSongIndex: 0,
+    timestamp: Date.now()
+};
+
+// SSE clients for real-time stream updates
+const streamSSEClients = new Set();
+
+// Broadcast stream event to all connected SSE clients
+function broadcastStreamEvent(event) {
+    const data = JSON.stringify(event);
+    for (const client of streamSSEClients) {
+        try {
+            client.write(`data: ${data}\n\n`);
+        } catch (err) {
+            streamSSEClients.delete(client);
+        }
+    }
+}
+
+// SSE endpoint for stream events
+app.get('/api/jack/stream-events', (req, res) => {
+    // Check auth from query param
+    const token = req.query.token;
+    if (!token || !sessions.has(token)) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+    });
+
+    // Send initial state
+    res.write(`data: ${JSON.stringify({ action: 'state', ...streamState })}\n\n`);
+
+    streamSSEClients.add(res);
+    logger.info(`📡 Stream SSE client connected (total: ${streamSSEClients.size})`);
+
+    req.on('close', () => {
+        streamSSEClients.delete(res);
+        logger.info(`📡 Stream SSE client disconnected (total: ${streamSSEClients.size})`);
+    });
+});
+
+// Get current stream state
+app.get('/api/jack/stream-state', authMiddleware, (req, res) => {
+    res.json({ success: true, data: streamState });
+});
+
+// Stream control: Play
+app.post('/api/jack/stream-control/play', authMiddleware, async (req, res) => {
+    try {
+        const { songIndex } = req.body;
+        
+        if (songIndex !== undefined) {
+            streamState.currentSongIndex = parseInt(songIndex) || 0;
+        }
+        streamState.status = 'playing';
+        streamState.timestamp = Date.now();
+
+        broadcastStreamEvent({ 
+            action: 'play', 
+            songIndex: streamState.currentSongIndex,
+            timestamp: streamState.timestamp 
+        });
+
+        logger.info(`🎵 Stream control: Play song index ${streamState.currentSongIndex}`);
+        res.json({ success: true, message: 'Play command sent', data: streamState });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to send play command' });
+    }
+});
+
+// Stream control: Pause
+app.post('/api/jack/stream-control/pause', authMiddleware, (req, res) => {
+    try {
+        streamState.status = 'paused';
+        streamState.timestamp = Date.now();
+
+        broadcastStreamEvent({ 
+            action: 'pause',
+            timestamp: streamState.timestamp 
+        });
+
+        logger.info(`⏸️ Stream control: Pause`);
+        res.json({ success: true, message: 'Pause command sent', data: streamState });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to send pause command' });
+    }
+});
+
+// Stream control: Next song
+app.post('/api/jack/stream-control/next', authMiddleware, async (req, res) => {
+    try {
+        // Load songs to get the count
+        let songsMetadata = { songs: [] };
+        try {
+            const data = await fs.readFile(SONGS_METADATA_FILE, 'utf8');
+            songsMetadata = JSON.parse(data);
+        } catch (err) {}
+
+        const totalSongs = songsMetadata.songs.length;
+        if (totalSongs === 0) {
+            return res.json({ success: false, message: 'No songs available' });
+        }
+
+        streamState.currentSongIndex = (streamState.currentSongIndex + 1) % totalSongs;
+        streamState.status = 'playing';
+        streamState.timestamp = Date.now();
+
+        broadcastStreamEvent({ 
+            action: 'next', 
+            songIndex: streamState.currentSongIndex,
+            timestamp: streamState.timestamp 
+        });
+
+        logger.info(`⏭️ Stream control: Next song (index ${streamState.currentSongIndex})`);
+        res.json({ success: true, message: 'Next command sent', data: streamState });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to send next command' });
+    }
+});
+
+// Stream control: Stop
+app.post('/api/jack/stream-control/stop', authMiddleware, (req, res) => {
+    try {
+        streamState.status = 'stopped';
+        streamState.timestamp = Date.now();
+
+        broadcastStreamEvent({ 
+            action: 'stop',
+            timestamp: streamState.timestamp 
+        });
+
+        logger.info(`⏹️ Stream control: Stop`);
+        res.json({ success: true, message: 'Stop command sent', data: streamState });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to send stop command' });
+    }
+});
+
 // Get stream config (Agora credentials)
 app.get('/api/jack/stream-config', authMiddleware, async (req, res) => {
     try {
@@ -3628,6 +3807,134 @@ async function connectWebSocket() {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     sendMessage(String(message).replace(/^\/say\s*/, ''));
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
+                            // Stream control: /play [song_index]
+                            else if (String(message).startsWith("/play")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        const args = String(message).replace(/^\/play\s*/, '').trim();
+                                        const songIndex = args ? parseInt(args) : undefined;
+                                        
+                                        // Update local state
+                                        if (songIndex !== undefined) {
+                                            streamState.currentSongIndex = songIndex;
+                                        }
+                                        streamState.status = 'playing';
+                                        streamState.timestamp = Date.now();
+                                        
+                                        // Broadcast to local SSE clients
+                                        broadcastStreamEvent({ 
+                                            action: 'play', 
+                                            songIndex: streamState.currentSongIndex,
+                                            timestamp: streamState.timestamp 
+                                        });
+                                        
+                                        // Also notify dashboard
+                                        await sendStreamControlToDashboard('play', streamState.currentSongIndex);
+                                        
+                                        sendMessage(`▶️ Stream: Playing song #${streamState.currentSongIndex + 1}`);
+                                        logger.info(`🎵 Admin ${user_id} triggered /play`);
+                                    } catch (err) {
+                                        sendMessage("Error processing play command.");
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
+                            // Stream control: /pause
+                            else if (String(message).startsWith("/pause")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        streamState.status = 'paused';
+                                        streamState.timestamp = Date.now();
+                                        
+                                        broadcastStreamEvent({ 
+                                            action: 'pause',
+                                            timestamp: streamState.timestamp 
+                                        });
+                                        
+                                        // Also notify dashboard
+                                        await sendStreamControlToDashboard('pause');
+                                        
+                                        sendMessage(`⏸️ Stream: Paused`);
+                                        logger.info(`⏸️ Admin ${user_id} triggered /pause`);
+                                    } catch (err) {
+                                        sendMessage("Error processing pause command.");
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
+                            // Stream control: /next
+                            else if (String(message).startsWith("/next")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        // Load songs to get the count
+                                        let songsMetadata = { songs: [] };
+                                        try {
+                                            const data = await fs.readFile(SONGS_METADATA_FILE, 'utf8');
+                                            songsMetadata = JSON.parse(data);
+                                        } catch (err) {}
+                                        
+                                        const totalSongs = songsMetadata.songs.length;
+                                        if (totalSongs === 0) {
+                                            sendMessage(`❌ No songs available in playlist.`);
+                                            return;
+                                        }
+                                        
+                                        streamState.currentSongIndex = (streamState.currentSongIndex + 1) % totalSongs;
+                                        streamState.status = 'playing';
+                                        streamState.timestamp = Date.now();
+                                        
+                                        broadcastStreamEvent({ 
+                                            action: 'next', 
+                                            songIndex: streamState.currentSongIndex,
+                                            timestamp: streamState.timestamp 
+                                        });
+                                        
+                                        // Also notify dashboard
+                                        await sendStreamControlToDashboard('next', streamState.currentSongIndex);
+                                        
+                                        sendMessage(`⏭️ Stream: Next song #${streamState.currentSongIndex + 1}`);
+                                        logger.info(`⏭️ Admin ${user_id} triggered /next`);
+                                    } catch (err) {
+                                        sendMessage("Error processing next command.");
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
+                            // Stream control: /stop
+                            else if (String(message).startsWith("/stop")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        streamState.status = 'stopped';
+                                        streamState.timestamp = Date.now();
+                                        
+                                        broadcastStreamEvent({ 
+                                            action: 'stop',
+                                            timestamp: streamState.timestamp 
+                                        });
+                                        
+                                        // Also notify dashboard
+                                        await sendStreamControlToDashboard('stop');
+                                        
+                                        sendMessage(`⏹️ Stream: Stopped`);
+                                        logger.info(`⏹️ Admin ${user_id} triggered /stop`);
+                                    } catch (err) {
+                                        sendMessage("Error processing stop command.");
+                                    }
                                 } else {
                                     sendMessage(`You are not eligible to use this command.`);
                                 }

@@ -27,6 +27,31 @@ const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
 const AGORA_TOKEN = process.env.AGORA_TOKEN;
 const AGORA_USER_ID = process.env.AGORA_USER_ID;
 
+// Bot control secret for bot.js -> dashboard communication
+const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
+
+// Stream state for playback control (mirrors bot.js state)
+const streamState = {
+  status: 'stopped' as 'playing' | 'paused' | 'stopped',
+  currentSongIndex: 0,
+  timestamp: Date.now()
+};
+
+// SSE clients for real-time stream updates
+const streamSSEClients = new Set<Response>();
+
+// Broadcast stream event to all connected SSE clients
+function broadcastStreamEvent(event: object) {
+  const data = JSON.stringify(event);
+  Array.from(streamSSEClients).forEach(client => {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch (err) {
+      streamSSEClients.delete(client);
+    }
+  });
+}
+
 // MySQL configuration for fetching bot status
 const MYSQL_CONFIG = {
   host: process.env.MYSQL_HOST || '94.72.106.77',
@@ -1897,6 +1922,192 @@ export function setupBotIntegration(app: Express) {
       });
     } catch (error) {
       res.json({ success: false, message: 'Failed to get stream configuration' });
+    }
+  });
+
+  // SSE endpoint for stream events
+  app.get('/api/jack/stream-events', (req, res) => {
+    // Check auth from query param
+    const token = req.query.token as string;
+    if (!token || !sessions.has(token)) {
+      // For SSE, close connection instead of returning JSON
+      res.status(401).end();
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
+
+    // Send initial state
+    res.write(`data: ${JSON.stringify({ action: 'state', ...streamState })}\n\n`);
+
+    streamSSEClients.add(res);
+    logger.info(`📡 Stream SSE client connected (total: ${streamSSEClients.size})`);
+
+    req.on('close', () => {
+      streamSSEClients.delete(res);
+      logger.info(`📡 Stream SSE client disconnected (total: ${streamSSEClients.size})`);
+    });
+  });
+
+  // Get current stream state
+  app.get('/api/jack/stream-state', authMiddleware, (req: AuthRequest, res) => {
+    res.json({ success: true, data: streamState });
+  });
+
+  // Stream control: Play
+  app.post('/api/jack/stream-control/play', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { songIndex } = req.body;
+      
+      if (songIndex !== undefined) {
+        streamState.currentSongIndex = parseInt(songIndex) || 0;
+      }
+      streamState.status = 'playing';
+      streamState.timestamp = Date.now();
+
+      broadcastStreamEvent({ 
+        action: 'play', 
+        songIndex: streamState.currentSongIndex,
+        timestamp: streamState.timestamp 
+      });
+
+      logger.info(`🎵 Stream control: Play song index ${streamState.currentSongIndex}`);
+      res.json({ success: true, message: 'Play command sent', data: streamState });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to send play command' });
+    }
+  });
+
+  // Stream control: Pause
+  app.post('/api/jack/stream-control/pause', authMiddleware, (req: AuthRequest, res) => {
+    try {
+      streamState.status = 'paused';
+      streamState.timestamp = Date.now();
+
+      broadcastStreamEvent({ 
+        action: 'pause',
+        timestamp: streamState.timestamp 
+      });
+
+      logger.info(`⏸️ Stream control: Pause`);
+      res.json({ success: true, message: 'Pause command sent', data: streamState });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to send pause command' });
+    }
+  });
+
+  // Stream control: Next song
+  app.post('/api/jack/stream-control/next', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      // Load songs to get the count
+      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
+      let songsMetadata = { songs: [] as any[] };
+      try {
+        const data = await fs.readFile(songsMetadataPath, 'utf8');
+        songsMetadata = JSON.parse(data);
+      } catch (err) {}
+
+      const totalSongs = songsMetadata.songs.length;
+      if (totalSongs === 0) {
+        return res.json({ success: false, message: 'No songs available' });
+      }
+
+      streamState.currentSongIndex = (streamState.currentSongIndex + 1) % totalSongs;
+      streamState.status = 'playing';
+      streamState.timestamp = Date.now();
+
+      broadcastStreamEvent({ 
+        action: 'next', 
+        songIndex: streamState.currentSongIndex,
+        timestamp: streamState.timestamp 
+      });
+
+      logger.info(`⏭️ Stream control: Next song (index ${streamState.currentSongIndex})`);
+      res.json({ success: true, message: 'Next command sent', data: streamState });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to send next command' });
+    }
+  });
+
+  // Stream control: Stop
+  app.post('/api/jack/stream-control/stop', authMiddleware, (req: AuthRequest, res) => {
+    try {
+      streamState.status = 'stopped';
+      streamState.timestamp = Date.now();
+
+      broadcastStreamEvent({ 
+        action: 'stop',
+        timestamp: streamState.timestamp 
+      });
+
+      logger.info(`⏹️ Stream control: Stop`);
+      res.json({ success: true, message: 'Stop command sent', data: streamState });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to send stop command' });
+    }
+  });
+
+  // Service endpoint for bot.js to push stream control events
+  // Uses shared secret instead of user auth
+  app.post('/api/jack/stream-control/service', async (req, res) => {
+    try {
+      const { secret, action, songIndex } = req.body;
+      
+      // Validate service secret
+      if (secret !== BOT_CONTROL_SECRET) {
+        return res.status(401).json({ success: false, message: 'Invalid service secret' });
+      }
+
+      // Load songs metadata for next action
+      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
+      let songsMetadata = { songs: [] as any[] };
+      try {
+        const data = await fs.readFile(songsMetadataPath, 'utf8');
+        songsMetadata = JSON.parse(data);
+      } catch (err) {}
+
+      const totalSongs = songsMetadata.songs.length;
+
+      // Handle different actions
+      if (action === 'play') {
+        if (songIndex !== undefined) {
+          streamState.currentSongIndex = parseInt(songIndex) || 0;
+        }
+        streamState.status = 'playing';
+        streamState.timestamp = Date.now();
+        broadcastStreamEvent({ action: 'play', songIndex: streamState.currentSongIndex, timestamp: streamState.timestamp });
+        logger.info(`🎵 Service: Play song index ${streamState.currentSongIndex}`);
+      } else if (action === 'pause') {
+        streamState.status = 'paused';
+        streamState.timestamp = Date.now();
+        broadcastStreamEvent({ action: 'pause', timestamp: streamState.timestamp });
+        logger.info(`⏸️ Service: Pause`);
+      } else if (action === 'next') {
+        if (totalSongs === 0) {
+          return res.json({ success: false, message: 'No songs available' });
+        }
+        streamState.currentSongIndex = (streamState.currentSongIndex + 1) % totalSongs;
+        streamState.status = 'playing';
+        streamState.timestamp = Date.now();
+        broadcastStreamEvent({ action: 'next', songIndex: streamState.currentSongIndex, timestamp: streamState.timestamp });
+        logger.info(`⏭️ Service: Next song (index ${streamState.currentSongIndex})`);
+      } else if (action === 'stop') {
+        streamState.status = 'stopped';
+        streamState.timestamp = Date.now();
+        broadcastStreamEvent({ action: 'stop', timestamp: streamState.timestamp });
+        logger.info(`⏹️ Service: Stop`);
+      } else {
+        return res.json({ success: false, message: 'Unknown action' });
+      }
+
+      res.json({ success: true, message: `${action} command processed`, data: streamState });
+    } catch (error) {
+      logger.error(`Service stream control error: ${error}`);
+      res.json({ success: false, message: 'Failed to process stream control command' });
     }
   });
 

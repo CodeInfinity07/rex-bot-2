@@ -74,12 +74,92 @@ export default function StreamPage() {
   const streamConfig: StreamConfig | null = configData?.success ? configData.data : null;
   const songs: Song[] = songsData?.data || [];
   const currentSong = songs[currentIndex];
+  const sseRef = useRef<EventSource | null>(null);
+  const songsRef = useRef<Song[]>([]);
+  
+  // Keep songs ref updated
+  useEffect(() => {
+    songsRef.current = songs;
+  }, [songs]);
+
+  // Pending action from SSE events
+  const pendingActionRef = useRef<'play' | 'next' | null>(null);
+
+  // Connect to SSE for stream control events
+  useEffect(() => {
+    const token = localStorage.getItem('bot_auth_token');
+    if (!token) return;
+
+    const eventSource = new EventSource(`/api/jack/stream-events?token=${token}`);
+    sseRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Stream event received:', data);
+        
+        // Handle stream control events
+        if (data.action === 'play') {
+          if (data.songIndex !== undefined) {
+            setCurrentIndex(data.songIndex);
+            pendingActionRef.current = 'play';
+          }
+          toast({ title: "Remote Play", description: "Admin triggered play command" });
+        } else if (data.action === 'pause') {
+          if (audioElementRef.current) {
+            audioElementRef.current.pause();
+            setIsPlaying(false);
+            toast({ title: "Remote Pause", description: "Admin paused the stream" });
+          }
+        } else if (data.action === 'next') {
+          if (data.songIndex !== undefined) {
+            setCurrentIndex(data.songIndex);
+            pendingActionRef.current = 'next';
+          }
+          toast({ title: "Remote Next", description: "Admin skipped to next song" });
+        } else if (data.action === 'stop') {
+          if (audioElementRef.current) {
+            audioElementRef.current.pause();
+            audioElementRef.current.currentTime = 0;
+            setIsPlaying(false);
+            toast({ title: "Remote Stop", description: "Admin stopped the stream" });
+          }
+        }
+      } catch (err) {
+        console.error('Error parsing SSE event:', err);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error:', error);
+    };
+
+    return () => {
+      eventSource.close();
+      sseRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
       disconnect();
     };
   }, []);
+
+  // Handle pending SSE actions after currentIndex updates
+  useEffect(() => {
+    if (pendingActionRef.current && isConnected && songs.length > 0) {
+      const action = pendingActionRef.current;
+      pendingActionRef.current = null;
+      
+      // Small delay to ensure state is updated
+      setTimeout(() => {
+        if (action === 'play' || action === 'next') {
+          playSongAtIndex(currentIndex);
+        }
+      }, 100);
+    }
+  }, [currentIndex, isConnected, songs.length]);
 
   useEffect(() => {
     if (audioElementRef.current) {
@@ -137,6 +217,63 @@ export default function StreamPage() {
     }
     setIsConnected(false);
     setIsPlaying(false);
+  };
+
+  // Play a specific song by index (used by SSE events)
+  const playSongAtIndex = async (index: number) => {
+    const song = songs[index];
+    if (!song || !clientRef.current) return;
+
+    try {
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
+      }
+
+      const token = localStorage.getItem('bot_auth_token');
+      const audio = new Audio();
+      audio.crossOrigin = "anonymous";
+      audio.src = `/api/jack/songs/file/${song.filename}?token=${token}`;
+      audio.volume = isMuted ? 0 : volume / 100;
+      audioElementRef.current = audio;
+
+      audio.ontimeupdate = () => {
+        setCurrentTime(audio.currentTime);
+      };
+
+      audio.onloadedmetadata = () => {
+        setDuration(audio.duration);
+      };
+
+      audio.onended = () => {
+        playNext();
+      };
+
+      await audio.play();
+
+      // Create audio track from media stream
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaElementSource(audio);
+      const destination = audioContext.createMediaStreamDestination();
+      source.connect(destination);
+      source.connect(audioContext.destination);
+
+      if (audioTrackRef.current) {
+        await clientRef.current.unpublish(audioTrackRef.current);
+        audioTrackRef.current.stop();
+        audioTrackRef.current.close();
+      }
+
+      const track = AgoraRTC.createCustomAudioTrack({
+        mediaStreamTrack: destination.stream.getAudioTracks()[0]
+      });
+      audioTrackRef.current = track;
+
+      await clientRef.current.publish(track);
+      setIsPlaying(true);
+      toast({ title: "Now playing", description: song.originalName });
+    } catch (error: any) {
+      toast({ title: "Playback error", description: error.message || "Could not play song", variant: "destructive" });
+    }
   };
 
   const playSong = async () => {
