@@ -4533,7 +4533,6 @@ async function connectWebSocket() {
 }
 
 // Create HTTP server from Express app
-const http = require('http');
 const server = http.createServer(app);
 
 // WebSocket server for dashboard stream control
