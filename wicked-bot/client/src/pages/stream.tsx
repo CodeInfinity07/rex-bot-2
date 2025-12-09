@@ -93,11 +93,18 @@ export default function StreamPage() {
         console.log('Stream event received:', data);
         
         if (data.action === 'play') {
-          if (data.songIndex !== undefined) {
+          // If we have a paused audio element, just resume it
+          if (audioElementRef.current && audioElementRef.current.paused) {
+            audioElementRef.current.play().then(() => {
+              setIsPlaying(true);
+            }).catch(err => console.error('Error resuming:', err));
+            toast({ title: "Remote Play", description: "Admin resumed playback" });
+          } else if (data.songIndex !== undefined) {
+            // Start playing a specific song
             setCurrentIndex(data.songIndex);
             pendingActionRef.current = 'play';
+            toast({ title: "Remote Play", description: "Admin triggered play command" });
           }
-          toast({ title: "Remote Play", description: "Admin triggered play command" });
         } else if (data.action === 'pause') {
           if (audioElementRef.current) {
             audioElementRef.current.pause();
