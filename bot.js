@@ -2662,14 +2662,8 @@ function broadcastStreamEvent(event) {
     logger.info(`📡 Broadcast stream event: ${event.action} to ${streamSSEClients.size} SSE + ${dashboardWSClients.size} WS clients`);
 }
 
-// SSE endpoint for stream events
+// SSE endpoint for stream events - PUBLIC for stream listeners
 app.get('/api/jack/stream-events', (req, res) => {
-    // Check auth from query param
-    const token = req.query.token;
-    if (!token || !sessions.has(token)) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
