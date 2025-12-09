@@ -2600,19 +2600,9 @@ app.delete('/api/jack/songs/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// Serve song files (supports auth via header or query param for audio elements)
+// Serve song files - PUBLIC for stream listeners
 app.get('/api/jack/songs/file/:filename', async (req, res) => {
     try {
-        // Check auth from header or query param
-        let token = req.headers.authorization?.substring(7);
-        if (!token && req.query.token) {
-            token = req.query.token;
-        }
-        
-        if (!token || !sessions.has(token)) {
-            return res.status(401).json({ success: false, message: 'Unauthorized' });
-        }
-
         const { filename } = req.params;
         const filePath = path.join(SONGS_DIR, filename);
         

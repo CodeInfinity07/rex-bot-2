@@ -220,10 +220,9 @@ export default function StreamPage() {
         audioElementRef.current.pause();
       }
 
-      const token = localStorage.getItem('bot_auth_token');
       const audio = new Audio();
       audio.crossOrigin = "anonymous";
-      audio.src = `/api/jack/songs/file/${song.filename}?token=${token}`;
+      audio.src = `/api/jack/songs/file/${song.filename}`;
       audio.volume = isMuted ? 0 : volume / 100;
       audioElementRef.current = audio;
 
@@ -275,10 +274,9 @@ export default function StreamPage() {
         audioElementRef.current.pause();
       }
 
-      const token = localStorage.getItem('bot_auth_token');
       const audio = new Audio();
       audio.crossOrigin = "anonymous";
-      audio.src = `/api/jack/songs/file/${currentSong.filename}?token=${token}`;
+      audio.src = `/api/jack/songs/file/${currentSong.filename}`;
       audio.volume = isMuted ? 0 : volume / 100;
       audioElementRef.current = audio;
 
