@@ -796,6 +796,15 @@ async function getResponse(message: string, user_id: string) {
 // WEBSOCKET FUNCTIONS
 // ==========================================
 
+function sendWebSocketMessage(message: string) {
+  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) {
+    logger.warn('Cannot send message - socket not connected');
+    return;
+  }
+  const base64Message = Buffer.from(message).toString('base64');
+  botState.socket.send(base64Message);
+}
+
 function sendMessage(TC: string) {
   if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) {
     logger.warn('Cannot send message - socket not connected');
@@ -811,7 +820,7 @@ function sendMessage(TC: string) {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   sequence += 1;
 }
 
@@ -829,7 +838,7 @@ function kickUser(uid: string, reason: string = '') {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   botState.stats.usersKicked++;
   sequence += 1;
   logger.info(`⚠️ Kicked user: ${uid} (${reason})`);
@@ -849,7 +858,7 @@ function takeMic() {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   onMic = true;
   sequence += 1;
 }
@@ -868,7 +877,7 @@ function leaveMic() {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   onMic = false;
   sequence += 1;
 }
@@ -885,7 +894,7 @@ function changeName(newName: string) {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   sequence += 1;
 }
 
@@ -901,7 +910,7 @@ function inviteMember(uid: string) {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   sequence += 1;
 }
 
@@ -917,7 +926,7 @@ function joinMic(micIndex: number) {
       TM: Date.now()
     }
   };
-  botState.socket.send(JSON.stringify(message));
+  sendWebSocketMessage(JSON.stringify(message));
   botMic = micIndex;
   sequence += 1;
 }
@@ -1168,54 +1177,51 @@ function connectToClub() {
   botState.connecting = true;
   logger.info(`🔌 Connecting to club: ${club_name} (${club_code})...`);
 
-  const url = `wss://ws.ls.superkinglabs.com/?EIO=4&transport=websocket`;
+  const url = `ws://ws.ls.superkinglabs.com/ws`;
   const ws = new WebSocket(url);
 
-  ws.on('open', () => {
+  ws.on('open', async () => {
     logger.info('✅ WebSocket opened, authenticating...');
     
-    // Send initial connection
-    ws.send('2probe');
-    ws.send('3');
-
-    // Authenticate
-    const authMessage = {
-      TC: "auth",
-      PY: {
-        UID: my_uid,
-        EP: bot_ep,
-        KEY: bot_key,
-        CL: club_code,
-        TM: Date.now()
-      }
-    };
-    ws.send(`42${JSON.stringify(['CLUB_STATE_IN', authMessage])}`);
-    
     botState.socket = ws;
-    // Don't set connected = true yet, wait for AUA message
-    // botState.connecting remains true until AUA received
+
+    // Send authentication (same format as bot.js)
+    const auth = JSON.stringify({
+      RH: "jo",
+      PU: "",
+      PY: JSON.stringify({
+        EP: `${bot_ep}`,
+        KEY: `${bot_key}`
+      }),
+      EN: true
+    });
+
+    // Send as base64
+    const base64Message = Buffer.from(auth).toString('base64');
+    ws.send(base64Message);
+    logger.info('🔐 Authentication sent');
   });
 
   ws.on('message', async (data: WebSocket.Data) => {
-    const message = data.toString();
-    
-    // Heartbeat
-    if (message === '2') {
-      ws.send('3');
-      return;
-    }
+    try {
+      const messageString = data.toString();
+      let jsonMessage;
 
-    // Handle club messages
-    if (message.startsWith('42')) {
       try {
-        const jsonStr = message.substring(2);
-        const parsed = JSON.parse(jsonStr);
-        if (parsed && parsed[1]) {
-          await handleMessage(JSON.stringify(parsed[1]));
+        // Check if it's base64
+        if (/^[A-Za-z0-9+/]+=*$/.test(messageString.trim())) {
+          const decoded = Buffer.from(messageString, 'base64').toString('utf-8');
+          jsonMessage = JSON.parse(decoded);
+        } else {
+          jsonMessage = JSON.parse(messageString);
         }
-      } catch (e) {
-        // Ignore parse errors
+      } catch (parseErr) {
+        return;
       }
+
+      await handleMessage(JSON.stringify(jsonMessage));
+    } catch (e) {
+      // Ignore errors
     }
   });
 
