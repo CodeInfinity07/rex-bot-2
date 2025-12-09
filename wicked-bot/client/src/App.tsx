@@ -21,6 +21,8 @@ import Exemptions from "@/pages/exemptions";
 import LoyalMembers from "@/pages/loyal-members";
 import ActivityLogs from "@/pages/activity-logs";
 import Moderators from "@/pages/moderators";
+import Music from "@/pages/music";
+import Stream from "@/pages/stream";
 
 function ProtectedRoutes() {
   return (
@@ -37,6 +39,8 @@ function ProtectedRoutes() {
       <Route path="/commands" component={Commands} />
       <Route path="/moderators" component={Moderators} />
       <Route path="/logs" component={ActivityLogs} />
+      <Route path="/music" component={Music} />
+      <Route path="/stream" component={Stream} />
       <Route component={Overview} />
     </Switch>
   );
