@@ -52,7 +52,7 @@ export default function StreamPage() {
   const { data: configData } = useQuery({
     queryKey: ['/api/jack/stream-config'],
     queryFn: async () => {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('bot_auth_token');
       const res = await fetch('/api/jack/stream-config', {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -63,7 +63,7 @@ export default function StreamPage() {
   const { data: songsData } = useQuery({
     queryKey: ['/api/jack/songs'],
     queryFn: async () => {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('bot_auth_token');
       const res = await fetch('/api/jack/songs', {
         headers: { Authorization: `Bearer ${token}` }
       });
