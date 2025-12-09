@@ -79,9 +79,12 @@ export default function StreamPage() {
   // Pending action from SSE events
   const pendingActionRef = useRef<'play' | 'next' | null>(null);
 
-  // Connect to SSE for stream control events (public - no auth required)
+  // Connect to SSE for stream control events (from bot.js server directly)
   useEffect(() => {
-    const eventSource = new EventSource('/api/jack/stream-events');
+    const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
+    const sseUrl = botApiUrl ? `${botApiUrl}/api/jack/stream-events` : '/api/jack/stream-events';
+    console.log('Connecting to SSE at:', sseUrl);
+    const eventSource = new EventSource(sseUrl);
     sseRef.current = eventSource;
 
     eventSource.onmessage = (event) => {

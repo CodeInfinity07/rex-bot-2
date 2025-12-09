@@ -34,7 +34,7 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 44795
+localPort = 33661
 externalPort = 3000
 
 [deployment]
@@ -48,3 +48,4 @@ build = ["bash", "-c", "cd wicked-bot && npm run build"]
 CLUB_CODE = "3029915"
 CLUB_NAME = "RexSquad"
 BOT_UID = "67ed448c87c13d000172aa9c"
+BOT_API_URL = "https://wickedrex-143.botpanels.live"
