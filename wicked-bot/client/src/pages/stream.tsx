@@ -139,20 +139,20 @@ export default function StreamPage() {
     };
   }, []);
 
-  // Handle pending SSE actions after currentIndex updates
+  // Handle pending SSE actions after currentIndex updates (works without Agora connection)
   useEffect(() => {
-    if (pendingActionRef.current && isConnected && songs.length > 0) {
+    if (pendingActionRef.current && songs.length > 0) {
       const action = pendingActionRef.current;
       pendingActionRef.current = null;
       
       // Small delay to ensure state is updated
       setTimeout(() => {
         if (action === 'play' || action === 'next') {
-          playSongAtIndex(currentIndex);
+          playLocalAudio(currentIndex);
         }
       }, 100);
     }
-  }, [currentIndex, isConnected, songs.length]);
+  }, [currentIndex, songs.length]);
 
   useEffect(() => {
     if (audioElementRef.current) {
@@ -212,7 +212,50 @@ export default function StreamPage() {
     setIsPlaying(false);
   };
 
-  // Play a specific song by index (used by SSE events)
+  // Play local audio without requiring Agora connection (used by remote SSE commands)
+  const playLocalAudio = async (index: number) => {
+    const song = songs[index];
+    if (!song) return;
+
+    try {
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
+      }
+
+      const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
+      const audioUrl = botApiUrl 
+        ? `${botApiUrl}/api/jack/songs/file/${song.filename}`
+        : `/api/jack/songs/file/${song.filename}`;
+
+      const audio = new Audio();
+      audio.crossOrigin = "anonymous";
+      audio.src = audioUrl;
+      audio.volume = isMuted ? 0 : volume / 100;
+      audioElementRef.current = audio;
+
+      audio.ontimeupdate = () => {
+        setCurrentTime(audio.currentTime);
+      };
+
+      audio.onloadedmetadata = () => {
+        setDuration(audio.duration);
+      };
+
+      audio.onended = () => {
+        // Auto-play next song
+        const nextIndex = (index + 1) % songs.length;
+        setCurrentIndex(nextIndex);
+        playLocalAudio(nextIndex);
+      };
+
+      await audio.play();
+      setIsPlaying(true);
+    } catch (error) {
+      console.error('Error playing local audio:', error);
+    }
+  };
+
+  // Play a specific song by index (used by SSE events when Agora connected)
   const playSongAtIndex = async (index: number) => {
     const song = songs[index];
     if (!song || !clientRef.current) return;
