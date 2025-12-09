@@ -96,6 +96,17 @@ export default function StreamPage() {
     setIsConnecting(true);
 
     try {
+      // Set custom user ID for LudoStar Agora integration (field "6" in detail)
+      if (streamConfig.userId) {
+        try {
+          // Try to set the extension user ID parameter
+          (AgoraRTC as any).setParameter("REPORT_APP_SCENARIO", JSON.stringify({ "6": streamConfig.userId }));
+          (AgoraRTC as any).setParameter("EXTENSION_EXTERNAL_USER_ID", streamConfig.userId);
+        } catch (e) {
+          console.log("Could not set custom Agora parameters:", e);
+        }
+      }
+
       const client = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
       clientRef.current = client;
 
@@ -145,7 +156,7 @@ export default function StreamPage() {
         audioElementRef.current.pause();
       }
 
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('bot_auth_token');
       const audio = new Audio();
       audio.crossOrigin = "anonymous";
       audio.src = `/api/jack/songs/file/${currentSong.filename}?token=${token}`;
