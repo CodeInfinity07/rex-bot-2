@@ -27,8 +27,11 @@ const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
 const AGORA_TOKEN = process.env.AGORA_TOKEN;
 const AGORA_USER_ID = process.env.AGORA_USER_ID;
 
-// Bot control secret for bot.js -> dashboard communication
+// Bot control secret for WebSocket authentication
 const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
+
+// Bot.js WebSocket URL for receiving stream control events
+const BOT_WS_URL = process.env.BOT_WS_URL || 'wss://wickedrex-143.botpanels.live/ws/stream-control';
 
 // Stream state for playback control (mirrors bot.js state)
 const streamState = {
@@ -40,6 +43,85 @@ const streamState = {
 // SSE clients for real-time stream updates
 const streamSSEClients = new Set<Response>();
 
+// WebSocket connection to bot.js
+let botWsConnection: WebSocket | null = null;
+let botWsReconnectTimer: NodeJS.Timeout | null = null;
+
+// Connect to bot.js WebSocket for stream control events
+function connectToBotWebSocket() {
+  if (botWsConnection && botWsConnection.readyState === WebSocket.OPEN) {
+    return;
+  }
+
+  logger.info(`📡 Connecting to bot.js WebSocket at ${BOT_WS_URL}...`);
+  
+  try {
+    const wsUrl = `${BOT_WS_URL}?secret=${BOT_CONTROL_SECRET}`;
+    botWsConnection = new WebSocket(wsUrl);
+
+    botWsConnection.on('open', () => {
+      logger.info('✅ Connected to bot.js WebSocket for stream control');
+      if (botWsReconnectTimer) {
+        clearTimeout(botWsReconnectTimer);
+        botWsReconnectTimer = null;
+      }
+    });
+
+    botWsConnection.on('message', (data: WebSocket.Data) => {
+      try {
+        const event = JSON.parse(data.toString());
+        logger.info(`📡 Received stream event from bot.js: ${event.action}`);
+        
+        // Update local stream state
+        if (event.action === 'state' || event.action === 'play' || event.action === 'next') {
+          if (event.songIndex !== undefined) {
+            streamState.currentSongIndex = event.songIndex;
+          }
+          if (event.status) {
+            streamState.status = event.status;
+          } else if (event.action === 'play' || event.action === 'next') {
+            streamState.status = 'playing';
+          }
+        } else if (event.action === 'pause') {
+          streamState.status = 'paused';
+        } else if (event.action === 'stop') {
+          streamState.status = 'stopped';
+        }
+        
+        if (event.timestamp) {
+          streamState.timestamp = event.timestamp;
+        }
+        
+        // Broadcast to SSE clients
+        broadcastStreamEvent(event);
+      } catch (err) {
+        logger.error(`Failed to parse bot.js WebSocket message: ${err}`);
+      }
+    });
+
+    botWsConnection.on('close', () => {
+      logger.warn('📡 Bot.js WebSocket disconnected, will reconnect in 5s...');
+      botWsConnection = null;
+      scheduleReconnect();
+    });
+
+    botWsConnection.on('error', (err: Error) => {
+      logger.error(`Bot.js WebSocket error: ${err.message}`);
+    });
+  } catch (err) {
+    logger.error(`Failed to connect to bot.js WebSocket: ${err}`);
+    scheduleReconnect();
+  }
+}
+
+function scheduleReconnect() {
+  if (botWsReconnectTimer) return;
+  botWsReconnectTimer = setTimeout(() => {
+    botWsReconnectTimer = null;
+    connectToBotWebSocket();
+  }, 5000);
+}
+
 // Broadcast stream event to all connected SSE clients
 function broadcastStreamEvent(event: object) {
   const data = JSON.stringify(event);
@@ -50,6 +132,7 @@ function broadcastStreamEvent(event: object) {
       streamSSEClients.delete(client);
     }
   });
+  logger.info(`📡 Broadcast to ${streamSSEClients.size} SSE clients: ${JSON.stringify(event)}`);
 }
 
 // MySQL configuration for fetching bot status
@@ -1080,6 +1163,10 @@ async function initializeBot() {
     await loadSavedData(USERS_FILE);
     await loadMessageCounter();
     await initializeMySQL();
+    
+    // Connect to bot.js WebSocket for stream control events
+    connectToBotWebSocket();
+    
     logger.info('✅ Bot initialized successfully');
     logger.info('📡 Bot status fetched from MySQL database');
   } catch (error) {
@@ -2048,66 +2135,6 @@ export function setupBotIntegration(app: Express) {
       res.json({ success: true, message: 'Stop command sent', data: streamState });
     } catch (error) {
       res.json({ success: false, message: 'Failed to send stop command' });
-    }
-  });
-
-  // Service endpoint for bot.js to push stream control events
-  // Uses shared secret instead of user auth
-  app.post('/api/jack/stream-control/service', async (req, res) => {
-    try {
-      const { secret, action, songIndex } = req.body;
-      
-      // Validate service secret
-      if (secret !== BOT_CONTROL_SECRET) {
-        return res.status(401).json({ success: false, message: 'Invalid service secret' });
-      }
-
-      // Load songs metadata for next action
-      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
-      let songsMetadata = { songs: [] as any[] };
-      try {
-        const data = await fs.readFile(songsMetadataPath, 'utf8');
-        songsMetadata = JSON.parse(data);
-      } catch (err) {}
-
-      const totalSongs = songsMetadata.songs.length;
-
-      // Handle different actions
-      if (action === 'play') {
-        if (songIndex !== undefined) {
-          streamState.currentSongIndex = parseInt(songIndex) || 0;
-        }
-        streamState.status = 'playing';
-        streamState.timestamp = Date.now();
-        broadcastStreamEvent({ action: 'play', songIndex: streamState.currentSongIndex, timestamp: streamState.timestamp });
-        logger.info(`🎵 Service: Play song index ${streamState.currentSongIndex}`);
-      } else if (action === 'pause') {
-        streamState.status = 'paused';
-        streamState.timestamp = Date.now();
-        broadcastStreamEvent({ action: 'pause', timestamp: streamState.timestamp });
-        logger.info(`⏸️ Service: Pause`);
-      } else if (action === 'next') {
-        if (totalSongs === 0) {
-          return res.json({ success: false, message: 'No songs available' });
-        }
-        streamState.currentSongIndex = (streamState.currentSongIndex + 1) % totalSongs;
-        streamState.status = 'playing';
-        streamState.timestamp = Date.now();
-        broadcastStreamEvent({ action: 'next', songIndex: streamState.currentSongIndex, timestamp: streamState.timestamp });
-        logger.info(`⏭️ Service: Next song (index ${streamState.currentSongIndex})`);
-      } else if (action === 'stop') {
-        streamState.status = 'stopped';
-        streamState.timestamp = Date.now();
-        broadcastStreamEvent({ action: 'stop', timestamp: streamState.timestamp });
-        logger.info(`⏹️ Service: Stop`);
-      } else {
-        return res.json({ success: false, message: 'Unknown action' });
-      }
-
-      res.json({ success: true, message: `${action} command processed`, data: streamState });
-    } catch (error) {
-      logger.error(`Service stream control error: ${error}`);
-      res.json({ success: false, message: 'Failed to process stream control command' });
     }
   });
 

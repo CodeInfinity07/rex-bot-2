@@ -218,38 +218,8 @@ const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
 const AGORA_TOKEN = process.env.AGORA_TOKEN;
 const AGORA_USER_ID = process.env.AGORA_USER_ID;
 
-// Dashboard control configuration (for bot.js -> dashboard communication)
-const DASHBOARD_URL = process.env.DASHBOARD_URL || '';
+// Bot control secret for WebSocket authentication
 const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
-
-// Helper function to send stream control to dashboard
-async function sendStreamControlToDashboard(action, songIndex = undefined) {
-    if (!DASHBOARD_URL) {
-        logger.warn('DASHBOARD_URL not configured, skipping dashboard notification');
-        return false;
-    }
-    
-    try {
-        const response = await axios.post(`${DASHBOARD_URL}/api/jack/stream-control/service`, {
-            secret: BOT_CONTROL_SECRET,
-            action,
-            songIndex
-        }, {
-            timeout: 5000
-        });
-        
-        if (response.data.success) {
-            logger.info(`✅ Stream control sent to dashboard: ${action}`);
-            return true;
-        } else {
-            logger.error(`❌ Dashboard stream control failed: ${response.data.message}`);
-            return false;
-        }
-    } catch (error) {
-        logger.error(`❌ Failed to send stream control to dashboard: ${error.message}`);
-        return false;
-    }
-}
 
 // Ensure songs directory exists
 async function ensureSongsDir() {
@@ -2662,9 +2632,14 @@ const streamState = {
 // SSE clients for real-time stream updates
 const streamSSEClients = new Set();
 
-// Broadcast stream event to all connected SSE clients
+// WebSocket clients from dashboard (for receiving stream control events)
+const dashboardWSClients = new Set();
+
+// Broadcast stream event to all connected SSE clients AND dashboard WebSocket clients
 function broadcastStreamEvent(event) {
     const data = JSON.stringify(event);
+    
+    // Send to SSE clients
     for (const client of streamSSEClients) {
         try {
             client.write(`data: ${data}\n\n`);
@@ -2672,6 +2647,19 @@ function broadcastStreamEvent(event) {
             streamSSEClients.delete(client);
         }
     }
+    
+    // Send to dashboard WebSocket clients
+    for (const ws of dashboardWSClients) {
+        try {
+            if (ws.readyState === 1) { // WebSocket.OPEN
+                ws.send(data);
+            }
+        } catch (err) {
+            dashboardWSClients.delete(ws);
+        }
+    }
+    
+    logger.info(`📡 Broadcast stream event: ${event.action} to ${streamSSEClients.size} SSE + ${dashboardWSClients.size} WS clients`);
 }
 
 // SSE endpoint for stream events
@@ -3820,22 +3808,18 @@ async function connectWebSocket() {
                                         const args = String(message).replace(/^\/play\s*/, '').trim();
                                         const songIndex = args ? parseInt(args) : undefined;
                                         
-                                        // Update local state
                                         if (songIndex !== undefined) {
                                             streamState.currentSongIndex = songIndex;
                                         }
                                         streamState.status = 'playing';
                                         streamState.timestamp = Date.now();
                                         
-                                        // Broadcast to local SSE clients
+                                        // Broadcast to SSE + WebSocket clients
                                         broadcastStreamEvent({ 
                                             action: 'play', 
                                             songIndex: streamState.currentSongIndex,
                                             timestamp: streamState.timestamp 
                                         });
-                                        
-                                        // Also notify dashboard
-                                        await sendStreamControlToDashboard('play', streamState.currentSongIndex);
                                         
                                         sendMessage(`▶️ Stream: Playing song #${streamState.currentSongIndex + 1}`);
                                         logger.info(`🎵 Admin ${user_id} triggered /play`);
@@ -3859,9 +3843,6 @@ async function connectWebSocket() {
                                             action: 'pause',
                                             timestamp: streamState.timestamp 
                                         });
-                                        
-                                        // Also notify dashboard
-                                        await sendStreamControlToDashboard('pause');
                                         
                                         sendMessage(`⏸️ Stream: Paused`);
                                         logger.info(`⏸️ Admin ${user_id} triggered /pause`);
@@ -3901,9 +3882,6 @@ async function connectWebSocket() {
                                             timestamp: streamState.timestamp 
                                         });
                                         
-                                        // Also notify dashboard
-                                        await sendStreamControlToDashboard('next', streamState.currentSongIndex);
-                                        
                                         sendMessage(`⏭️ Stream: Next song #${streamState.currentSongIndex + 1}`);
                                         logger.info(`⏭️ Admin ${user_id} triggered /next`);
                                     } catch (err) {
@@ -3926,9 +3904,6 @@ async function connectWebSocket() {
                                             action: 'stop',
                                             timestamp: streamState.timestamp 
                                         });
-                                        
-                                        // Also notify dashboard
-                                        await sendStreamControlToDashboard('stop');
                                         
                                         sendMessage(`⏹️ Stream: Stopped`);
                                         logger.info(`⏹️ Admin ${user_id} triggered /stop`);
@@ -4557,10 +4532,46 @@ async function connectWebSocket() {
     });
 }
 
-// Start Express server
-app.listen(PORT, async () => {
+// Create HTTP server from Express app
+const http = require('http');
+const server = http.createServer(app);
+
+// WebSocket server for dashboard stream control
+const dashboardWss = new WebSocket.Server({ server, path: '/ws/stream-control' });
+
+dashboardWss.on('connection', (ws, req) => {
+    // Optional: validate with query param secret
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const secret = url.searchParams.get('secret');
+    
+    if (secret && secret !== BOT_CONTROL_SECRET) {
+        logger.warn('⚠️ Dashboard WS connection rejected: invalid secret');
+        ws.close(4001, 'Invalid secret');
+        return;
+    }
+    
+    dashboardWSClients.add(ws);
+    logger.info(`📡 Dashboard WS connected (total: ${dashboardWSClients.size})`);
+    
+    // Send current state on connect
+    ws.send(JSON.stringify({ action: 'state', ...streamState }));
+    
+    ws.on('close', () => {
+        dashboardWSClients.delete(ws);
+        logger.info(`📡 Dashboard WS disconnected (total: ${dashboardWSClients.size})`);
+    });
+    
+    ws.on('error', (err) => {
+        logger.error(`Dashboard WS error: ${err.message}`);
+        dashboardWSClients.delete(ws);
+    });
+});
+
+// Start HTTP server (with WebSocket support)
+server.listen(PORT, async () => {
     logger.info(`🚀 Bot ${botConfig.botConfiguration?.botName} API server running on port ${PORT}`);
     logger.info(`📱 Dashboard available at http://localhost:${PORT}`);
+    logger.info(`📡 Dashboard WebSocket available at ws://localhost:${PORT}/ws/stream-control`);
 
     await initializeBot();
 });
