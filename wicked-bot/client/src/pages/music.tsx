@@ -37,7 +37,7 @@ export default function MusicPage() {
   const { data: songsData, isLoading } = useQuery({
     queryKey: ['/api/jack/songs'],
     queryFn: async () => {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('bot_auth_token');
       const res = await fetch('/api/jack/songs', {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -47,7 +47,7 @@ export default function MusicPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('bot_auth_token');
       const res = await fetch(`/api/jack/songs/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
@@ -86,7 +86,7 @@ export default function MusicPage() {
     setUploadProgress(0);
 
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('bot_auth_token');
       const xhr = new XMLHttpRequest();
       
       xhr.upload.onprogress = (event) => {
