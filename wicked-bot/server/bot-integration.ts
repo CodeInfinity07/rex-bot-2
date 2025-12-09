@@ -8,7 +8,6 @@ import { OpenAI } from 'openai';
 import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
 import bcrypt from 'bcryptjs';
-import multer from 'multer';
 import mysql from 'mysql2/promise';
 
 // Load environment variables from root .env file (where bot.js is located)
@@ -21,12 +20,6 @@ const OWNER_ID = process.env.OWNER_ID;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 const MODERATORS_FILE = path.join(process.cwd(), 'data', 'moderators.json');
 const ACTIVITY_LOGS_FILE = path.join(process.cwd(), 'data', 'activity_logs.json');
-
-// Songs configuration
-const SONGS_DIR = path.join(process.cwd(), 'data', 'songs');
-const SONGS_METADATA_FILE = path.join(process.cwd(), 'data', 'songs_metadata.json');
-const MAX_SONGS = 15;
-const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 
 // Agora configuration from root .env
 const AGORA_APP_ID = process.env.AGORA_APP_ID;
@@ -87,59 +80,6 @@ async function fetchBotStatusFromDB(): Promise<{ connected: boolean; connecting:
     return { connected: false, connecting: false, lastUpdate: null };
   }
 }
-
-// Ensure songs directory exists
-async function ensureSongsDir(): Promise<void> {
-  try {
-    await fs.access(SONGS_DIR);
-  } catch {
-    await fs.mkdir(SONGS_DIR, { recursive: true });
-  }
-}
-
-// Load songs metadata
-async function loadSongsMetadata(): Promise<any[]> {
-  try {
-    const data = await fs.readFile(SONGS_METADATA_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
-      await fs.writeFile(SONGS_METADATA_FILE, '[]', 'utf8');
-      return [];
-    }
-    return [];
-  }
-}
-
-// Save songs metadata
-async function saveSongsMetadata(songs: any[]): Promise<void> {
-  await fs.writeFile(SONGS_METADATA_FILE, JSON.stringify(songs, null, 2), 'utf8');
-}
-
-// Configure multer for song uploads
-const songStorage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    await ensureSongsDir();
-    cb(null, SONGS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const uniqueId = crypto.randomUUID().slice(0, 8);
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${uniqueId}_${safeName}`);
-  }
-});
-
-const songUpload = multer({
-  storage: songStorage,
-  limits: { fileSize: MAX_FILE_SIZE },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'audio/mpeg' || file.originalname.toLowerCase().endsWith('.mp3')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only MP3 files are allowed'));
-    }
-  }
-});
 
 // In-memory session store
 const sessions = new Map<string, { userId: string; role: string; loginTime: string }>();
@@ -212,7 +152,6 @@ async function logActivity(userId: string, userRole: string, action: string, det
 // Extend Express Request type
 interface AuthRequest extends Request {
   user?: { userId: string; role: string };
-  file?: Express.Multer.File;
 }
 
 // Auth middleware
@@ -1932,116 +1871,6 @@ export function setupBotIntegration(app: Express) {
       }, 1000);
     } catch (error) {
       res.json({ success: false, message: 'Failed to restart' });
-    }
-  });
-
-  // ==================== SONGS API ====================
-
-  // Get all songs
-  app.get('/api/jack/songs', authMiddleware, async (req: AuthRequest, res) => {
-    try {
-      const songs = await loadSongsMetadata();
-      res.json({ success: true, data: songs });
-    } catch (error) {
-      res.json({ success: false, message: 'Failed to load songs' });
-    }
-  });
-
-  // Upload song
-  app.post('/api/jack/songs/upload', authMiddleware, (req: AuthRequest, res, next) => {
-    songUpload.single('song')(req as any, res, async (err: any) => {
-      if (err) {
-        return res.json({ success: false, message: err.message || 'Upload failed' });
-      }
-      
-      try {
-        const songs = await loadSongsMetadata();
-        
-        if (songs.length >= MAX_SONGS) {
-          if (req.file) {
-            await fs.unlink(req.file.path);
-          }
-          return res.json({ success: false, message: `Maximum of ${MAX_SONGS} songs allowed` });
-        }
-
-        if (!req.file) {
-          return res.json({ success: false, message: 'No file uploaded' });
-        }
-
-        const newSong = {
-          id: crypto.randomUUID(),
-          filename: req.file.filename,
-          originalName: req.file.originalname,
-          size: req.file.size,
-          uploadedAt: new Date().toISOString(),
-          uploadedBy: req.user?.userId || 'unknown'
-        };
-
-        songs.push(newSong);
-        await saveSongsMetadata(songs);
-
-        res.json({ success: true, data: newSong, message: 'Song uploaded successfully' });
-      } catch (error: any) {
-        res.json({ success: false, message: error.message || 'Failed to upload song' });
-      }
-    });
-  });
-
-  // Delete song
-  app.delete('/api/jack/songs/:id', authMiddleware, async (req: AuthRequest, res) => {
-    try {
-      const { id } = req.params;
-      const songs = await loadSongsMetadata();
-      const songIndex = songs.findIndex((s: any) => s.id === id);
-      
-      if (songIndex === -1) {
-        return res.json({ success: false, message: 'Song not found' });
-      }
-
-      const song = songs[songIndex];
-      
-      // Delete the file
-      try {
-        await fs.unlink(path.join(SONGS_DIR, song.filename));
-      } catch (err) {
-        // File might not exist, continue anyway
-      }
-
-      // Remove from metadata
-      songs.splice(songIndex, 1);
-      await saveSongsMetadata(songs);
-
-      res.json({ success: true, message: 'Song deleted successfully' });
-    } catch (error) {
-      res.json({ success: false, message: 'Failed to delete song' });
-    }
-  });
-
-  // Serve song files (supports auth via header or query param for audio elements)
-  app.get('/api/jack/songs/file/:filename', async (req: Request, res) => {
-    try {
-      // Check auth from header or query param
-      let token = req.headers.authorization?.substring(7);
-      if (!token && req.query.token) {
-        token = req.query.token as string;
-      }
-      
-      if (!token || !sessions.has(token)) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
-      }
-
-      const { filename } = req.params;
-      const filePath = path.join(SONGS_DIR, filename);
-      
-      // Security: ensure filename doesn't contain path traversal
-      if (filename.includes('..') || filename.includes('/')) {
-        return res.status(400).json({ success: false, message: 'Invalid filename' });
-      }
-
-      await fs.access(filePath);
-      res.sendFile(filePath);
-    } catch (error) {
-      res.status(404).json({ success: false, message: 'File not found' });
     }
   });
 
