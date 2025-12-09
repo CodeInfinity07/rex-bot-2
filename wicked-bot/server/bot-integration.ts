@@ -9,6 +9,7 @@ import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
+import mysql from 'mysql2/promise';
 
 // Load environment variables from root .env file (where bot.js is located)
 // The wicked-bot server runs from wicked-bot/ directory, so we go up one level
@@ -32,6 +33,60 @@ const AGORA_APP_ID = process.env.AGORA_APP_ID;
 const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
 const AGORA_TOKEN = process.env.AGORA_TOKEN;
 const AGORA_USER_ID = process.env.AGORA_USER_ID;
+
+// MySQL configuration for fetching bot status
+const MYSQL_CONFIG = {
+  host: process.env.MYSQL_HOST || '94.72.106.77',
+  user: process.env.MYSQL_USER || 'ryzon',
+  password: process.env.MYSQL_PASSWORD || 'zain0980',
+  database: process.env.MYSQL_DATABASE || 'ivex',
+  waitForConnections: true,
+  connectionLimit: 5,
+  queueLimit: 0
+};
+
+let mysqlPool: mysql.Pool | null = null;
+
+// Initialize MySQL connection pool
+async function initializeMySQL(): Promise<void> {
+  try {
+    mysqlPool = mysql.createPool(MYSQL_CONFIG);
+    const connection = await mysqlPool.getConnection();
+    logger.info(`✅ MySQL connected successfully to ${MYSQL_CONFIG.host}`);
+    connection.release();
+  } catch (error: any) {
+    logger.error(`❌ MySQL connection failed: ${error.message}`);
+    mysqlPool = null;
+  }
+}
+
+// Fetch bot status from MySQL
+async function fetchBotStatusFromDB(): Promise<{ connected: boolean; connecting: boolean; lastUpdate: string | null }> {
+  if (!mysqlPool) {
+    return { connected: false, connecting: false, lastUpdate: null };
+  }
+
+  try {
+    const [rows] = await mysqlPool.query(
+      'SELECT status, updated_at FROM socket_status WHERE club_code = ? ORDER BY updated_at DESC LIMIT 1',
+      [club_code]
+    ) as any;
+
+    if (rows && rows.length > 0) {
+      const row = rows[0];
+      return {
+        connected: row.status === 'connected',
+        connecting: false,
+        lastUpdate: row.updated_at ? new Date(row.updated_at).toISOString() : null
+      };
+    }
+
+    return { connected: false, connecting: false, lastUpdate: null };
+  } catch (error: any) {
+    logger.error(`❌ Error fetching bot status from MySQL: ${error.message}`);
+    return { connected: false, connecting: false, lastUpdate: null };
+  }
+}
 
 // Ensure songs directory exists
 async function ensureSongsDir(): Promise<void> {
@@ -793,142 +848,35 @@ async function getResponse(message: string, user_id: string) {
 }
 
 // ==========================================
-// WEBSOCKET FUNCTIONS
+// WEBSOCKET FUNCTIONS (placeholder - bot.js handles actual WebSocket)
 // ==========================================
 
-function sendWebSocketMessage(message: string) {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) {
-    logger.warn('Cannot send message - socket not connected');
-    return;
-  }
-  const base64Message = Buffer.from(message).toString('base64');
-  botState.socket.send(base64Message);
-}
-
 function sendMessage(TC: string) {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) {
-    logger.warn('Cannot send message - socket not connected');
-    return;
-  }
-
-  const message = {
-    TC: "msg",
-    PY: {
-      RLT: 'global',
-      _T: Date.now() + sequence,
-      msg: TC,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  sequence += 1;
+  logger.warn('sendMessage called - WebSocket handled by standalone bot.js');
 }
 
 function kickUser(uid: string, reason: string = '') {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) return;
-
-  const message = {
-    TC: "kk",
-    PY: {
-      RLT: 'admin',
-      _T: Date.now() + sequence,
-      UID: uid,
-      BY: my_uid,
-      RS: reason,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  botState.stats.usersKicked++;
-  sequence += 1;
-  logger.info(`⚠️ Kicked user: ${uid} (${reason})`);
+  logger.warn('kickUser called - WebSocket handled by standalone bot.js');
 }
 
 function takeMic() {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) return;
-
-  const message = {
-    TC: "bwm",
-    PY: {
-      RLT: 'mic',
-      _T: Date.now() + sequence,
-      UID: my_uid,
-      BS: 1,
-      MS: 0,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  onMic = true;
-  sequence += 1;
+  logger.warn('takeMic called - WebSocket handled by standalone bot.js');
 }
 
 function leaveMic() {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) return;
-
-  const message = {
-    TC: "bwm",
-    PY: {
-      RLT: 'mic',
-      _T: Date.now() + sequence,
-      UID: my_uid,
-      BS: 2,
-      MS: 0,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  onMic = false;
-  sequence += 1;
+  logger.warn('leaveMic called - WebSocket handled by standalone bot.js');
 }
 
 function changeName(newName: string) {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) return;
-
-  const message = {
-    TC: "un",
-    PY: {
-      RLT: 'user',
-      _T: Date.now() + sequence,
-      NM: newName,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  sequence += 1;
+  logger.warn('changeName called - WebSocket handled by standalone bot.js');
 }
 
 function inviteMember(uid: string) {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) return;
-
-  const message = {
-    TC: "iv",
-    PY: {
-      RLT: 'admin',
-      _T: Date.now() + sequence,
-      UID: uid,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  sequence += 1;
+  logger.warn('inviteMember called - WebSocket handled by standalone bot.js');
 }
 
 function joinMic(micIndex: number) {
-  if (!botState.socket || botState.socket.readyState !== WebSocket.OPEN) return;
-
-  const message = {
-    TC: "jm",
-    PY: {
-      RLT: 'mic',
-      _T: Date.now() + sequence,
-      MI: micIndex,
-      TM: Date.now()
-    }
-  };
-  sendWebSocketMessage(JSON.stringify(message));
-  botMic = micIndex;
-  sequence += 1;
+  logger.warn('joinMic called - WebSocket handled by standalone bot.js');
 }
 
 async function handleMessage(data: string) {
@@ -1108,10 +1056,9 @@ async function handleChatCommand(message: string, uid: string, name: string) {
     }
   }
   
-  // /rejoin - Rejoin club
+  // /rejoin - Rejoin club (handled by standalone bot.js)
   else if (msg === '/rejoin') {
-    sendMessage('🔄 Rejoining club...');
-    setTimeout(() => connectToClub(), 2000);
+    sendMessage('🔄 Rejoin is handled by standalone bot process');
   }
   
   // /stats - Show bot stats
@@ -1160,92 +1107,6 @@ async function handleChatCommand(message: string, uid: string, name: string) {
 }
 
 // ==========================================
-// WEBSOCKET CONNECTION
-// ==========================================
-
-function connectToClub() {
-  if (botState.connecting || botState.connected) {
-    logger.warn('Already connecting or connected');
-    return;
-  }
-
-  if (!my_uid || !bot_ep || !bot_key) {
-    logger.error('Missing bot credentials (BOT_UID, EP, KEY)');
-    return;
-  }
-
-  botState.connecting = true;
-  logger.info(`🔌 Connecting to club: ${club_name} (${club_code})...`);
-
-  const url = `ws://ws.ls.superkinglabs.com/ws`;
-  const ws = new WebSocket(url);
-
-  ws.on('open', async () => {
-    logger.info('✅ WebSocket opened, authenticating...');
-    
-    botState.socket = ws;
-
-    // Send authentication (same format as bot.js)
-    const auth = JSON.stringify({
-      RH: "jo",
-      PU: "",
-      PY: JSON.stringify({
-        EP: `${bot_ep}`,
-        KEY: `${bot_key}`
-      }),
-      EN: true
-    });
-
-    // Send as base64
-    const base64Message = Buffer.from(auth).toString('base64');
-    ws.send(base64Message);
-    logger.info('🔐 Authentication sent');
-  });
-
-  ws.on('message', async (data: WebSocket.Data) => {
-    try {
-      const messageString = data.toString();
-      let jsonMessage;
-
-      try {
-        // Check if it's base64
-        if (/^[A-Za-z0-9+/]+=*$/.test(messageString.trim())) {
-          const decoded = Buffer.from(messageString, 'base64').toString('utf-8');
-          jsonMessage = JSON.parse(decoded);
-        } else {
-          jsonMessage = JSON.parse(messageString);
-        }
-      } catch (parseErr) {
-        return;
-      }
-
-      await handleMessage(JSON.stringify(jsonMessage));
-    } catch (e) {
-      // Ignore errors
-    }
-  });
-
-  ws.on('error', (error) => {
-    logger.error(`WebSocket error: ${error.message}`);
-    botState.connected = false;
-    botState.connecting = false;
-  });
-
-  ws.on('close', () => {
-    logger.warn('🔌 WebSocket disconnected');
-    botState.connected = false;
-    botState.connecting = false;
-    botState.socket = null;
-    
-    // Reconnect after 5 seconds
-    setTimeout(() => {
-      logger.info('🔄 Reconnecting...');
-      connectToClub();
-    }, 5000);
-  });
-}
-
-// ==========================================
 // INITIALIZATION
 // ==========================================
 
@@ -1254,14 +1115,9 @@ async function initializeBot() {
     await loadAllConfigurations();
     await loadSavedData(USERS_FILE);
     await loadMessageCounter();
+    await initializeMySQL();
     logger.info('✅ Bot initialized successfully');
-    
-    // Auto-connect if credentials available
-    if (my_uid && bot_ep && bot_key && club_code) {
-      setTimeout(() => connectToClub(), 2000);
-    } else {
-      logger.warn('⚠️ Bot credentials not configured - WebSocket disabled');
-    }
+    logger.info('📡 Bot status fetched from MySQL database');
   } catch (error) {
     logger.error('Error initializing bot');
   }
@@ -1980,24 +1836,39 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // Get bot status
-  app.get('/api/jack/status', (req, res) => {
-    const uptime = botState.startTime ? Date.now() - botState.startTime : 0;
-
-    res.json({
-      success: true,
-      connected: botState.connected,
-      connecting: botState.connecting,
-      clubCode: botState.clubCode,
-      clubName: botState.clubName,
-      uptime: uptime,
-      stats: botState.stats,
-      configLoaded: {
-        admins: botConfig.admins.length,
-        spamWords: botConfig.spamWords.length,
-        bannedPatterns: botConfig.bannedPatterns.length
-      }
-    });
+  // Get bot status (fetched from MySQL)
+  app.get('/api/jack/status', async (req, res) => {
+    try {
+      const dbStatus = await fetchBotStatusFromDB();
+      
+      res.json({
+        success: true,
+        connected: dbStatus.connected,
+        connecting: dbStatus.connecting,
+        clubCode: club_code,
+        clubName: club_name,
+        lastUpdate: dbStatus.lastUpdate,
+        configLoaded: {
+          admins: botConfig.admins.length,
+          spamWords: botConfig.spamWords.length,
+          bannedPatterns: botConfig.bannedPatterns.length
+        }
+      });
+    } catch (error) {
+      res.json({
+        success: true,
+        connected: false,
+        connecting: false,
+        clubCode: club_code,
+        clubName: club_name,
+        lastUpdate: null,
+        configLoaded: {
+          admins: botConfig.admins.length,
+          spamWords: botConfig.spamWords.length,
+          bannedPatterns: botConfig.bannedPatterns.length
+        }
+      });
+    }
   });
 
   // Get daily message count
@@ -2031,30 +1902,20 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // Connect bot endpoint
+  // Connect bot endpoint (WebSocket managed by standalone bot.js)
   app.post('/api/jack/connect', (req, res) => {
-    try {
-      if (botState.connected) {
-        return res.json({ success: false, message: 'Already connected' });
-      }
-      connectToClub();
-      res.json({ success: true, message: 'Connecting...' });
-    } catch (error) {
-      res.json({ success: false, message: 'Failed to connect' });
-    }
+    res.json({ 
+      success: false, 
+      message: 'Bot connection is managed by standalone bot.js process. Please start bot.js to connect.' 
+    });
   });
 
-  // Disconnect bot endpoint
+  // Disconnect bot endpoint (WebSocket managed by standalone bot.js)
   app.post('/api/jack/disconnect', (req, res) => {
-    try {
-      if (botState.socket) {
-        botState.socket.close();
-      }
-      botState.connected = false;
-      res.json({ success: true, message: 'Disconnected' });
-    } catch (error) {
-      res.json({ success: false, message: 'Failed to disconnect' });
-    }
+    res.json({ 
+      success: false, 
+      message: 'Bot disconnection is managed by standalone bot.js process.' 
+    });
   });
 
   // Restart bot endpoint
