@@ -2508,7 +2508,17 @@ app.get('/api/jack/status', (req, res) => {
 // SONGS API ENDPOINTS
 // ====================
 
-// Get all songs
+// Get songs list - PUBLIC for stream listeners
+app.get('/api/jack/stream-songs', async (req, res) => {
+    try {
+        const songs = await loadSongsMetadata();
+        res.json({ success: true, data: songs });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to load songs' });
+    }
+});
+
+// Get all songs (authenticated)
 app.get('/api/jack/songs', authMiddleware, async (req, res) => {
     try {
         const songs = await loadSongsMetadata();
@@ -2780,8 +2790,8 @@ app.post('/api/jack/stream-control/stop', authMiddleware, (req, res) => {
     }
 });
 
-// Get stream config (Agora credentials)
-app.get('/api/jack/stream-config', authMiddleware, async (req, res) => {
+// Get stream config (Agora credentials) - PUBLIC for stream listeners
+app.get('/api/jack/stream-config', async (req, res) => {
     try {
         if (!AGORA_APP_ID || !AGORA_CHANNEL || !AGORA_TOKEN) {
             return res.json({ 
