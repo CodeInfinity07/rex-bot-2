@@ -212,6 +212,12 @@ const MAX_SONGS = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const conversationHistory = new Map();
 
+// Agora configuration for live streaming
+const AGORA_APP_ID = process.env.AGORA_APP_ID;
+const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
+const AGORA_TOKEN = process.env.AGORA_TOKEN;
+const AGORA_USER_ID = process.env.AGORA_USER_ID;
+
 // Ensure songs directory exists
 async function ensureSongsDir() {
     try {
@@ -2606,6 +2612,34 @@ app.get('/api/jack/songs/file/:filename', async (req, res) => {
         res.sendFile(path.resolve(filePath));
     } catch (error) {
         res.status(404).json({ success: false, message: 'File not found' });
+    }
+});
+
+// ====================
+// STREAM API ENDPOINTS
+// ====================
+
+// Get stream config (Agora credentials)
+app.get('/api/jack/stream-config', authMiddleware, async (req, res) => {
+    try {
+        if (!AGORA_APP_ID || !AGORA_CHANNEL || !AGORA_TOKEN) {
+            return res.json({ 
+                success: false, 
+                message: 'Stream configuration not set. Please add AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN, and AGORA_USER_ID to your .env file.' 
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                appId: AGORA_APP_ID,
+                channel: AGORA_CHANNEL,
+                token: AGORA_TOKEN,
+                userId: AGORA_USER_ID || '0'
+            }
+        });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to get stream configuration' });
     }
 });
 
