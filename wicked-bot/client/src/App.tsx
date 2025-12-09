@@ -40,7 +40,6 @@ function ProtectedRoutes() {
       <Route path="/moderators" component={Moderators} />
       <Route path="/logs" component={ActivityLogs} />
       <Route path="/music" component={Music} />
-      <Route path="/stream" component={Stream} />
       <Route component={Overview} />
     </Switch>
   );
@@ -48,6 +47,16 @@ function ProtectedRoutes() {
 
 function AppContent() {
   const { user, isLoading } = useAuth();
+  const [location] = window.location.pathname.split('?');
+
+  // Stream page is public - no auth required
+  if (location === '/stream') {
+    return (
+      <div className="min-h-screen bg-background p-6">
+        <Stream />
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
