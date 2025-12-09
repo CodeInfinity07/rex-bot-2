@@ -209,7 +209,7 @@ const ACTIVITY_LOGS_FILE = './data/activity_logs.json';
 const SONGS_DIR = './data/songs';
 const SONGS_METADATA_FILE = './data/songs_metadata.json';
 const MAX_SONGS = 10;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const conversationHistory = new Map();
 
 // Agora configuration for live streaming
