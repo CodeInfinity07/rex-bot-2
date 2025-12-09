@@ -79,57 +79,71 @@ export default function StreamPage() {
   // Pending action from SSE events
   const pendingActionRef = useRef<'play' | 'next' | null>(null);
 
-  // Connect to SSE for stream control events (from bot.js server directly)
+  // Connect to SSE for stream control events - try external bot.js first, fall back to local
   useEffect(() => {
-    const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
-    const sseUrl = botApiUrl ? `${botApiUrl}/api/jack/stream-events` : '/api/jack/stream-events';
-    console.log('Connecting to SSE at:', sseUrl);
-    const eventSource = new EventSource(sseUrl);
-    sseRef.current = eventSource;
+    let eventSource: EventSource | null = null;
+    let fallbackAttempted = false;
+    
+    const connectSSE = (url: string, isFallback = false) => {
+      console.log(`Connecting to SSE at: ${url}${isFallback ? ' (fallback)' : ''}`);
+      eventSource = new EventSource(url);
+      sseRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('Stream event received:', data);
-        
-        // Handle stream control events
-        if (data.action === 'play') {
-          if (data.songIndex !== undefined) {
-            setCurrentIndex(data.songIndex);
-            pendingActionRef.current = 'play';
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Stream event received:', data);
+          
+          // Handle stream control events
+          if (data.action === 'play') {
+            if (data.songIndex !== undefined) {
+              setCurrentIndex(data.songIndex);
+              pendingActionRef.current = 'play';
+            }
+            toast({ title: "Remote Play", description: "Admin triggered play command" });
+          } else if (data.action === 'pause') {
+            if (audioElementRef.current) {
+              audioElementRef.current.pause();
+              setIsPlaying(false);
+              toast({ title: "Remote Pause", description: "Admin paused the stream" });
+            }
+          } else if (data.action === 'next') {
+            if (data.songIndex !== undefined) {
+              setCurrentIndex(data.songIndex);
+              pendingActionRef.current = 'next';
+            }
+            toast({ title: "Remote Next", description: "Admin skipped to next song" });
+          } else if (data.action === 'stop') {
+            if (audioElementRef.current) {
+              audioElementRef.current.pause();
+              audioElementRef.current.currentTime = 0;
+              setIsPlaying(false);
+              toast({ title: "Remote Stop", description: "Admin stopped the stream" });
+            }
           }
-          toast({ title: "Remote Play", description: "Admin triggered play command" });
-        } else if (data.action === 'pause') {
-          if (audioElementRef.current) {
-            audioElementRef.current.pause();
-            setIsPlaying(false);
-            toast({ title: "Remote Pause", description: "Admin paused the stream" });
-          }
-        } else if (data.action === 'next') {
-          if (data.songIndex !== undefined) {
-            setCurrentIndex(data.songIndex);
-            pendingActionRef.current = 'next';
-          }
-          toast({ title: "Remote Next", description: "Admin skipped to next song" });
-        } else if (data.action === 'stop') {
-          if (audioElementRef.current) {
-            audioElementRef.current.pause();
-            audioElementRef.current.currentTime = 0;
-            setIsPlaying(false);
-            toast({ title: "Remote Stop", description: "Admin stopped the stream" });
-          }
+        } catch (err) {
+          console.error('Error parsing SSE event:', err);
         }
-      } catch (err) {
-        console.error('Error parsing SSE event:', err);
-      }
-    };
+      };
 
-    eventSource.onerror = (error) => {
-      console.error('SSE connection error:', error);
+      eventSource.onerror = (error) => {
+        console.error('SSE connection error:', error);
+        // Try fallback to local SSE if external fails
+        if (!isFallback && !fallbackAttempted) {
+          fallbackAttempted = true;
+          eventSource?.close();
+          console.log('External SSE failed, falling back to local...');
+          connectSSE('/api/jack/stream-events', true);
+        }
+      };
     };
+    
+    const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
+    const primaryUrl = botApiUrl ? `${botApiUrl}/api/jack/stream-events` : '/api/jack/stream-events';
+    connectSSE(primaryUrl);
 
     return () => {
-      eventSource.close();
+      eventSource?.close();
       sseRef.current = null;
     };
   }, []);
