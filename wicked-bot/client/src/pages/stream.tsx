@@ -96,25 +96,16 @@ export default function StreamPage() {
     setIsConnecting(true);
 
     try {
-      // Set custom user ID for LudoStar Agora integration (field "6" in detail)
-      if (streamConfig.userId) {
-        try {
-          // Try to set the extension user ID parameter
-          (AgoraRTC as any).setParameter("REPORT_APP_SCENARIO", JSON.stringify({ "6": streamConfig.userId }));
-          (AgoraRTC as any).setParameter("EXTENSION_EXTERNAL_USER_ID", streamConfig.userId);
-        } catch (e) {
-          console.log("Could not set custom Agora parameters:", e);
-        }
-      }
-
       const client = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
       clientRef.current = client;
 
+      // Pass userId as string directly - don't convert to number
+      // Agora will include it in the detail["6"] field of the request
       await client.join(
         streamConfig.appId,
         streamConfig.channel,
         streamConfig.token,
-        parseInt(streamConfig.userId) || 0
+        streamConfig.userId
       );
 
       setIsConnected(true);
