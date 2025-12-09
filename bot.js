@@ -2666,18 +2666,29 @@ function broadcastStreamEvent(event) {
 app.get('/api/jack/stream-events', (req, res) => {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        'X-Accel-Buffering': 'no'
     });
 
     // Send initial state
     res.write(`data: ${JSON.stringify({ action: 'state', ...streamState })}\n\n`);
 
+    // Keep-alive heartbeat every 15 seconds to prevent proxy timeouts
+    const heartbeat = setInterval(() => {
+        try {
+            res.write(`:heartbeat\n\n`);
+        } catch (err) {
+            clearInterval(heartbeat);
+        }
+    }, 15000);
+
     streamSSEClients.add(res);
     logger.info(`📡 Stream SSE client connected (total: ${streamSSEClients.size})`);
 
     req.on('close', () => {
+        clearInterval(heartbeat);
         streamSSEClients.delete(res);
         logger.info(`📡 Stream SSE client disconnected (total: ${streamSSEClients.size})`);
     });
