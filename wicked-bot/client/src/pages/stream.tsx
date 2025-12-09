@@ -52,21 +52,15 @@ export default function StreamPage() {
   const { data: configData } = useQuery({
     queryKey: ['/api/jack/stream-config'],
     queryFn: async () => {
-      const token = localStorage.getItem('bot_auth_token');
-      const res = await fetch('/api/jack/stream-config', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch('/api/jack/stream-config');
       return res.json();
     }
   });
 
   const { data: songsData } = useQuery({
-    queryKey: ['/api/jack/songs'],
+    queryKey: ['/api/jack/stream-songs'],
     queryFn: async () => {
-      const token = localStorage.getItem('bot_auth_token');
-      const res = await fetch('/api/jack/songs', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch('/api/jack/stream-songs');
       return res.json();
     }
   });
@@ -85,12 +79,9 @@ export default function StreamPage() {
   // Pending action from SSE events
   const pendingActionRef = useRef<'play' | 'next' | null>(null);
 
-  // Connect to SSE for stream control events
+  // Connect to SSE for stream control events (public - no auth required)
   useEffect(() => {
-    const token = localStorage.getItem('bot_auth_token');
-    if (!token) return;
-
-    const eventSource = new EventSource(`/api/jack/stream-events?token=${token}`);
+    const eventSource = new EventSource('/api/jack/stream-events');
     sseRef.current = eventSource;
 
     eventSource.onmessage = (event) => {

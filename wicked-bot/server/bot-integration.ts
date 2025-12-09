@@ -1986,10 +1986,10 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // ==================== STREAM API ====================
+  // ==================== STREAM API (PUBLIC - NO AUTH) ====================
 
-  // Get stream config (Agora credentials)
-  app.get('/api/jack/stream-config', authMiddleware, async (req: AuthRequest, res) => {
+  // Get stream config (Agora credentials) - PUBLIC for stream listeners
+  app.get('/api/jack/stream-config', async (req, res) => {
     try {
       if (!AGORA_APP_ID || !AGORA_CHANNEL || !AGORA_TOKEN) {
         return res.json({ 
@@ -2012,16 +2012,24 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // SSE endpoint for stream events
-  app.get('/api/jack/stream-events', (req, res) => {
-    // Check auth from query param
-    const token = req.query.token as string;
-    if (!token || !sessions.has(token)) {
-      // For SSE, close connection instead of returning JSON
-      res.status(401).end();
-      return;
+  // Get songs list - PUBLIC for stream listeners
+  app.get('/api/jack/stream-songs', async (req, res) => {
+    try {
+      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
+      let songsMetadata = { songs: [] as any[] };
+      try {
+        const data = await fs.readFile(songsMetadataPath, 'utf8');
+        songsMetadata = JSON.parse(data);
+      } catch (err) {}
+      
+      res.json({ success: true, data: songsMetadata.songs });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to load songs' });
     }
+  });
 
+  // SSE endpoint for stream events - PUBLIC for stream listeners
+  app.get('/api/jack/stream-events', (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
