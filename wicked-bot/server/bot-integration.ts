@@ -21,6 +21,12 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 const MODERATORS_FILE = path.join(process.cwd(), 'data', 'moderators.json');
 const ACTIVITY_LOGS_FILE = path.join(process.cwd(), 'data', 'activity_logs.json');
 
+// Agora configuration from root .env (for Stream page)
+const AGORA_APP_ID = process.env.AGORA_APP_ID;
+const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
+const AGORA_TOKEN = process.env.AGORA_TOKEN;
+const AGORA_USER_ID = process.env.AGORA_USER_ID;
+
 // MySQL configuration for fetching bot status
 const MYSQL_CONFIG = {
   host: process.env.MYSQL_HOST || '94.72.106.77',
@@ -1865,6 +1871,32 @@ export function setupBotIntegration(app: Express) {
       }, 1000);
     } catch (error) {
       res.json({ success: false, message: 'Failed to restart' });
+    }
+  });
+
+  // ==================== STREAM API ====================
+
+  // Get stream config (Agora credentials)
+  app.get('/api/jack/stream-config', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!AGORA_APP_ID || !AGORA_CHANNEL || !AGORA_TOKEN) {
+        return res.json({ 
+          success: false, 
+          message: 'Stream configuration not set. Please add AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN, and AGORA_USER_ID to your .env file.' 
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          appId: AGORA_APP_ID,
+          channel: AGORA_CHANNEL,
+          token: AGORA_TOKEN,
+          userId: AGORA_USER_ID || '0'
+        }
+      });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to get stream configuration' });
     }
   });
 
