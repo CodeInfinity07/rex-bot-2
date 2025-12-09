@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -47,7 +47,7 @@ function ProtectedRoutes() {
 
 function AppContent() {
   const { user, isLoading } = useAuth();
-  const [location] = window.location.pathname.split('?');
+  const [location] = useLocation();
 
   // Stream page is public - no auth required
   if (location === '/stream') {
