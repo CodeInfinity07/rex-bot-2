@@ -278,8 +278,63 @@ const songUpload = multer({
 const OWNER_ID = process.env.OWNER_ID;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 
-// In-memory session store (simple approach for single-instance bot)
-const sessions = new Map();
+// Session helper functions (MySQL-backed for persistence across restarts)
+async function getSession(token) {
+    if (!mysqlPool) return null;
+    try {
+        const [rows] = await mysqlPool.query(
+            'SELECT user_id, role, login_time FROM dashboard_sessions WHERE token = ?',
+            [token]
+        );
+        if (rows && rows.length > 0) {
+            return {
+                userId: rows[0].user_id,
+                role: rows[0].role,
+                loginTime: rows[0].login_time.toISOString()
+            };
+        }
+        return null;
+    } catch (error) {
+        logger.error('Error getting session from MySQL:', error.message);
+        return null;
+    }
+}
+
+async function setSession(token, sessionData) {
+    if (!mysqlPool) return false;
+    try {
+        await mysqlPool.query(
+            'INSERT INTO dashboard_sessions (token, user_id, role, login_time) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), role = VALUES(role), login_time = VALUES(login_time)',
+            [token, sessionData.userId, sessionData.role, new Date(sessionData.loginTime)]
+        );
+        return true;
+    } catch (error) {
+        logger.error('Error saving session to MySQL:', error.message);
+        return false;
+    }
+}
+
+async function deleteSession(token) {
+    if (!mysqlPool) return false;
+    try {
+        await mysqlPool.query('DELETE FROM dashboard_sessions WHERE token = ?', [token]);
+        return true;
+    } catch (error) {
+        logger.error('Error deleting session from MySQL:', error.message);
+        return false;
+    }
+}
+
+async function deleteSessionsByUserId(userId) {
+    if (!mysqlPool) return false;
+    try {
+        await mysqlPool.query('DELETE FROM dashboard_sessions WHERE user_id = ?', [userId]);
+        return true;
+    } catch (error) {
+        logger.error('Error deleting sessions by user ID from MySQL:', error.message);
+        return false;
+    }
+}
 
 // Generate session token
 function generateSessionToken() {
@@ -362,7 +417,7 @@ async function authMiddleware(req, res, next) {
         return res.status(401).json({ success: false, message: 'No token provided' });
     }
     
-    const session = sessions.get(token);
+    const session = await getSession(token);
     if (!session) {
         return res.status(401).json({ success: false, message: 'Invalid or expired token' });
     }
@@ -858,8 +913,20 @@ async function initializeMySQL() {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `);
 
+            await connection.query(`
+                CREATE TABLE IF NOT EXISTS dashboard_sessions (
+                    token VARCHAR(64) PRIMARY KEY,
+                    user_id VARCHAR(255) NOT NULL,
+                    role VARCHAR(50) NOT NULL,
+                    login_time DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_login_time (login_time)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+
             connection.release();
-            logger.info('✅ Socket status tables ready');
+            logger.info('✅ Socket status and session tables ready');
             return;
 
         } catch (error) {
@@ -1157,7 +1224,7 @@ app.post('/api/jack/login', async (req, res) => {
         // Check if owner
         if (username === OWNER_ID && password === OWNER_PASSWORD) {
             const token = generateSessionToken();
-            sessions.set(token, {
+            await setSession(token, {
                 userId: username,
                 role: 'owner',
                 loginTime: new Date().toISOString()
@@ -1188,7 +1255,7 @@ app.post('/api/jack/login', async (req, res) => {
                 return res.status(401).json({ success: false, message: 'Invalid credentials' });
             }
             const token = generateSessionToken();
-            sessions.set(token, {
+            await setSession(token, {
                 userId: username,
                 role: 'moderator',
                 loginTime: new Date().toISOString()
@@ -1219,7 +1286,7 @@ app.post('/api/jack/logout', authMiddleware, async (req, res) => {
         
         await logActivity(req.user.userId, req.user.role, 'LOGOUT', { message: 'User logged out' });
         
-        sessions.delete(token);
+        await deleteSession(token);
         res.json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
         res.json({ success: false, message: 'Logout failed' });
@@ -1322,11 +1389,7 @@ app.delete('/api/jack/moderators/:id', authMiddleware, ownerOnly, async (req, re
         await saveModerators(filteredModerators);
         
         // Invalidate any sessions for this moderator
-        for (const [token, session] of sessions.entries()) {
-            if (session.userId === moderator.username) {
-                sessions.delete(token);
-            }
-        }
+        await deleteSessionsByUserId(moderator.username);
         
         await logActivity(req.user.userId, 'owner', 'DELETE_MODERATOR', { 
             moderatorUsername: moderator.username 
