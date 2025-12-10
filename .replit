@@ -33,6 +33,10 @@ outputType = "webview"
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 46261
+externalPort = 3000
+
 [deployment]
 deploymentTarget = "autoscale"
 run = ["bash", "-c", "cd wicked-bot && npm start"]
@@ -45,3 +49,7 @@ CLUB_CODE = "3029915"
 CLUB_NAME = "RexSquad"
 BOT_UID = "67ed448c87c13d000172aa9c"
 BOT_API_URL = "https://wickedrex-143.botpanels.live"
+MYSQL_HOST = "94.72.106.77"
+MYSQL_USER = "ryzon"
+MYSQL_PASSWORD = "zain0980"
+MYSQL_DATABASE = "ivex"

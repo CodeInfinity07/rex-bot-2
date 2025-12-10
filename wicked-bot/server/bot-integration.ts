@@ -137,10 +137,10 @@ function broadcastStreamEvent(event: object) {
 
 // MySQL configuration for fetching bot status
 const MYSQL_CONFIG = {
-  host: process.env.MYSQL_HOST || '94.72.106.77',
-  user: process.env.MYSQL_USER || 'ryzon',
-  password: process.env.MYSQL_PASSWORD || 'zain0980',
-  database: process.env.MYSQL_DATABASE || 'ivex',
+  host: process.env.MYSQL_HOST || '',
+  user: process.env.MYSQL_USER || '',
+  password: process.env.MYSQL_PASSWORD || '',
+  database: process.env.MYSQL_DATABASE || '',
   waitForConnections: true,
   connectionLimit: 5,
   queueLimit: 0
@@ -173,6 +173,8 @@ async function fetchBotStatusFromDB(): Promise<{ connected: boolean; connecting:
       [club_code]
     ) as any;
 
+    logger.info(`📡 Bot status fetched from MySQL database for club_code=${club_code}: ${JSON.stringify(rows)}`);
+
     if (rows && rows.length > 0) {
       const row = rows[0];
       return {
@@ -182,6 +184,7 @@ async function fetchBotStatusFromDB(): Promise<{ connected: boolean; connecting:
       };
     }
 
+    logger.info(`📡 No status found in MySQL for club_code=${club_code}`);
     return { connected: false, connecting: false, lastUpdate: null };
   } catch (error: any) {
     logger.error(`❌ Error fetching bot status from MySQL: ${error.message}`);
