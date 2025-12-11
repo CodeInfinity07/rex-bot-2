@@ -341,6 +341,38 @@ function generateSessionToken() {
     return crypto.randomBytes(32).toString('hex');
 }
 
+// Update .env file with new credentials
+async function updateEnvCredentials(credentials) {
+    try {
+        const envPath = path.resolve('.env');
+        let envContent = '';
+        
+        try {
+            envContent = await fs.readFile(envPath, 'utf-8');
+        } catch {
+            // .env might not exist
+        }
+        
+        for (const [key, value] of Object.entries(credentials)) {
+            const regex = new RegExp(`^${key}=.*$`, 'm');
+            if (regex.test(envContent)) {
+                envContent = envContent.replace(regex, `${key}=${value}`);
+            } else {
+                envContent += `\n${key}=${value}`;
+            }
+            // Also update process.env for current session
+            process.env[key] = value;
+        }
+        
+        await fs.writeFile(envPath, envContent.trim() + '\n', 'utf-8');
+        logger.info(`✅ Environment credentials updated: ${Object.keys(credentials).join(', ')}`);
+        return true;
+    } catch (error) {
+        logger.error('Error updating .env credentials:', error.message);
+        return false;
+    }
+}
+
 // Load moderators from file
 async function loadModerators() {
     try {
@@ -3554,6 +3586,15 @@ async function connectWebSocket() {
                         }
 
                         if (jsonMessage?.PU === "CJA" || jsonMessage?.PU === "REA") {
+                            const agora_channel = jsonMessage.PY.VC.VCH;
+                            const agora_token = jsonMessage.PY.VC.AT;
+                            
+                            // Save Agora credentials to .env for reconnection
+                            if (agora_channel && agora_token) {
+                                await updateEnvCredentials({ AGORA_CHANNEL: agora_channel, AGORA_TOKEN: agora_token });
+                                logger.info(`🎤 Agora credentials updated: Channel=${agora_channel.substring(0, 10)}...`);
+                            }
+                            
                             isProcessingBans = false;
                             const ulData = jsonMessage?.PY?.OUL;
                             const c_mics = jsonMessage.PY.MSI;
