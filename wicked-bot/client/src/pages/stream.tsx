@@ -97,23 +97,30 @@ export default function StreamPage() {
         console.log('Stream event received:', data);
         
         if (data.action === 'play') {
-          // If we have a paused audio element, just resume it
-          if (audioElementRef.current && audioElementRef.current.paused) {
-            audioElementRef.current.play().then(() => {
+          // Check if we have an existing audio element that was paused (has progress)
+          const audioEl = audioElementRef.current;
+          const hasExistingPausedAudio = audioEl && 
+            audioEl.paused && 
+            audioEl.currentTime > 0;
+          
+          if (hasExistingPausedAudio && data.songIndex === currentIndex && audioEl) {
+            // Resume existing paused audio (same song)
+            audioEl.play().then(() => {
               setIsPlaying(true);
             }).catch(err => console.error('Error resuming:', err));
             toast({ title: "Remote Play", description: "Admin resumed playback" });
           } else if (data.songIndex !== undefined) {
-            // Start playing a specific song (or restart current song)
-            if (currentIndex === data.songIndex) {
-              // Same song index - check if songs are loaded first
-              if (songsRef.current.length > 0) {
+            // Start playing a specific song (fresh start or different song)
+            if (songsRef.current.length > 0) {
+              if (currentIndex === data.songIndex) {
+                // Same song index - force fresh play
                 playLocalAudio(data.songIndex);
               } else {
-                // Songs not loaded yet, set pending action
+                setCurrentIndex(data.songIndex);
                 pendingActionRef.current = 'play';
               }
             } else {
+              // Songs not loaded yet, set pending action
               setCurrentIndex(data.songIndex);
               pendingActionRef.current = 'play';
             }
