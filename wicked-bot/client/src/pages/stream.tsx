@@ -87,7 +87,7 @@ export default function StreamPage() {
     const eventSource = new EventSource(sseUrl);
     sseRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
+    eventSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('Stream event received:', data);
@@ -123,6 +123,67 @@ export default function StreamPage() {
             audioElementRef.current.currentTime = 0;
             setIsPlaying(false);
             toast({ title: "Remote Stop", description: "Admin stopped the stream" });
+          }
+        } else if (data.action === 'reconnect') {
+          // Reconnect with new Agora credentials
+          toast({ title: "Reconnecting", description: "Admin triggered Agora reconnect..." });
+          
+          // First disconnect any existing connection
+          try {
+            if (audioTrackRef.current) {
+              audioTrackRef.current.stop();
+              audioTrackRef.current.close();
+              audioTrackRef.current = null;
+            }
+            if (clientRef.current) {
+              await clientRef.current.leave();
+              clientRef.current = null;
+            }
+            if (audioElementRef.current) {
+              audioElementRef.current.pause();
+              audioElementRef.current = null;
+            }
+            setIsConnected(false);
+            setIsPlaying(false);
+          } catch (err) {
+            console.error('Error disconnecting for reconnect:', err);
+          }
+          
+          // Now reconnect with new credentials if provided
+          if (data.agoraChannel && data.agoraToken && streamConfig) {
+            try {
+              setIsConnecting(true);
+              const client = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
+              clientRef.current = client;
+              
+              await client.join(
+                streamConfig.appId,
+                data.agoraChannel,
+                data.agoraToken,
+                streamConfig.userId
+              );
+              
+              setIsConnected(true);
+              setCurrentIndex(0);
+              
+              // Start playing first song
+              setTimeout(() => {
+                playLocalAudio(0);
+              }, 500);
+              
+              toast({ title: "Reconnected", description: `Joined channel: ${data.agoraChannel}` });
+            } catch (err: any) {
+              console.error('Error reconnecting:', err);
+              toast({ title: "Reconnect Failed", description: err.message || "Could not reconnect", variant: "destructive" });
+            } finally {
+              setIsConnecting(false);
+            }
+          } else {
+            // Just play locally without Agora if no credentials
+            setCurrentIndex(0);
+            setTimeout(() => {
+              playLocalAudio(0);
+            }, 100);
           }
         }
       } catch (err) {

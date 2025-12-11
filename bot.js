@@ -4024,6 +4024,41 @@ async function connectWebSocket() {
                                 }
                             }
 
+                            // Stream control: /rec (reconnect Agora with new credentials)
+                            else if (String(message).startsWith("/rec")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        const agoraChannel = process.env.AGORA_CHANNEL;
+                                        const agoraToken = process.env.AGORA_TOKEN;
+                                        
+                                        if (!agoraChannel || !agoraToken) {
+                                            sendMessage(`❌ Agora credentials not available. Rejoin the club first.`);
+                                            return;
+                                        }
+                                        
+                                        streamState.currentSongIndex = 0;
+                                        streamState.status = 'playing';
+                                        streamState.timestamp = Date.now();
+                                        
+                                        broadcastStreamEvent({ 
+                                            action: 'reconnect',
+                                            agoraChannel: agoraChannel,
+                                            agoraToken: agoraToken,
+                                            songIndex: 0,
+                                            timestamp: streamState.timestamp 
+                                        });
+                                        
+                                        sendMessage(`🔄 Stream: Reconnecting with new credentials...`);
+                                        logger.info(`🔄 Admin ${user_id} triggered /rec - Agora reconnect`);
+                                    } catch (err) {
+                                        sendMessage("Error processing reconnect command.");
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
                             else if (String(message).startsWith("/refresh")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
