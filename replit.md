@@ -131,6 +131,24 @@ API endpoints `/api/jack/member-time/:uid` and `/api/jack/members-time` provide 
 
 **LudoStar WebSocket Server**: Proprietary gaming platform API at undisclosed endpoint. Requires valid club authentication credentials (EP token, KEY). Connection state exposed via `/api/jack/status` endpoint.
 
+### Spotify Integration
+
+**Spotify Web Playback SDK**: The Stream page integrates with Spotify Web Playback SDK to allow users to search and play Spotify tracks directly in the browser. Requires Spotify Premium account for playback.
+
+**OAuth Flow**: 
+- `/api/jack/spotify/login` - Redirects to Spotify authorization page
+- `/api/jack/spotify/callback` - Handles OAuth callback and exchanges code for tokens
+- `/api/jack/spotify/token` - Returns current access token with auto-refresh
+- `/api/jack/spotify/status` - Returns connection status
+- `/api/jack/spotify/search` - Searches Spotify catalog for tracks
+- `/api/jack/spotify/logout` - Clears stored tokens
+
+**Environment Variables**:
+- `SPOTIFY_CLIENT_ID`: Spotify app client ID (stored as secret)
+- `SPOTIFY_CLIENT_SECRET`: Spotify app client secret (stored as secret)
+
+**Token Storage**: Access and refresh tokens stored in-memory on the server. Tokens auto-refresh when expired. Sessions are not persisted across server restarts for dashboard (use MySQL-backed sessions in bot.js for persistence).
+
 ### Database & Storage
 
 **File System**: All data persisted to local file system in `data/` directory. JSON files for structured data (members, settings, configuration), text files for simple lists (admins, spam words).
