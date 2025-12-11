@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
 const { OpenAI } = require('openai');
@@ -12,6 +13,7 @@ const mysql = require('mysql2/promise');
 const WebSocket = require('ws');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const { spawn } = require('child_process');
 
 require('dotenv').config();
 
@@ -247,6 +249,125 @@ async function loadSongsMetadata() {
 // Save songs metadata
 async function saveSongsMetadata(songs) {
     await fs.writeFile(SONGS_METADATA_FILE, JSON.stringify(songs, null, 2), 'utf8');
+}
+
+// Download YouTube video as MP3 using yt-dlp
+async function downloadYouTubeAsMP3(youtubeUrl, progressCallback = null) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            await ensureSongsDir();
+            
+            // Generate unique filename
+            const uniqueId = crypto.randomUUID().slice(0, 8);
+            const tempFilename = `yt_${uniqueId}`;
+            const outputTemplate = path.join(SONGS_DIR, `${tempFilename}.%(ext)s`);
+            
+            // Use yt-dlp to download and convert to MP3
+            const args = [
+                '-x',                           // Extract audio
+                '--audio-format', 'mp3',        // Convert to MP3
+                '--audio-quality', '0',         // Best quality
+                '-o', outputTemplate,           // Output template
+                '--no-playlist',                // Don't download playlist
+                '--print', 'title',             // Print title to stdout
+                youtubeUrl
+            ];
+            
+            logger.info(`📥 Starting YouTube download: ${youtubeUrl}`);
+            
+            const ytdlp = spawn('yt-dlp', args);
+            let videoTitle = '';
+            let errorOutput = '';
+            
+            ytdlp.stdout.on('data', (data) => {
+                const output = data.toString().trim();
+                if (output && !output.includes('[')) {
+                    videoTitle = output;
+                }
+                if (progressCallback) {
+                    progressCallback(output);
+                }
+            });
+            
+            ytdlp.stderr.on('data', (data) => {
+                const output = data.toString();
+                errorOutput += output;
+                logger.info(`yt-dlp: ${output}`);
+            });
+            
+            ytdlp.on('error', (err) => {
+                logger.error(`yt-dlp spawn error: ${err.message}`);
+                reject(new Error('yt-dlp not installed or not accessible. Please install yt-dlp and ffmpeg.'));
+            });
+            
+            ytdlp.on('close', async (code) => {
+                if (code !== 0) {
+                    logger.error(`yt-dlp exited with code ${code}: ${errorOutput}`);
+                    reject(new Error(`Download failed: ${errorOutput || 'Unknown error'}`));
+                    return;
+                }
+                
+                // Find the downloaded MP3 file
+                const mp3Filename = `${tempFilename}.mp3`;
+                const mp3Path = path.join(SONGS_DIR, mp3Filename);
+                
+                try {
+                    await fs.access(mp3Path);
+                    
+                    // Get file stats
+                    const stats = await fs.stat(mp3Path);
+                    
+                    // Clean up video title for display
+                    const cleanTitle = videoTitle || `YouTube_${uniqueId}`;
+                    
+                    // Add to songs metadata
+                    let songsMetadata = await loadSongsMetadata();
+                    if (!Array.isArray(songsMetadata)) {
+                        songsMetadata = songsMetadata.songs || [];
+                    }
+                    
+                    const newSong = {
+                        id: uniqueId,
+                        filename: mp3Filename,
+                        originalName: `${cleanTitle}.mp3`,
+                        size: stats.size,
+                        youtubeUrl: youtubeUrl,
+                        addedAt: new Date().toISOString()
+                    };
+                    
+                    // Check if we need to maintain format
+                    if (Array.isArray(songsMetadata)) {
+                        songsMetadata.push(newSong);
+                        await saveSongsMetadata({ songs: songsMetadata });
+                    } else {
+                        songsMetadata.songs = songsMetadata.songs || [];
+                        songsMetadata.songs.push(newSong);
+                        await saveSongsMetadata(songsMetadata);
+                    }
+                    
+                    logger.info(`✅ YouTube download complete: ${cleanTitle}`);
+                    resolve({
+                        success: true,
+                        song: newSong,
+                        title: cleanTitle,
+                        index: songsMetadata.length - 1 || (songsMetadata.songs ? songsMetadata.songs.length - 1 : 0)
+                    });
+                } catch (err) {
+                    logger.error(`MP3 file not found after download: ${mp3Path}`);
+                    reject(new Error('Downloaded file not found'));
+                }
+            });
+        } catch (err) {
+            logger.error(`YouTube download error: ${err.message}`);
+            reject(err);
+        }
+    });
+}
+
+// Check if URL is a YouTube link
+function isYouTubeUrl(str) {
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[a-zA-Z0-9_-]+/;
+    return youtubeRegex.test(str);
 }
 
 // Configure multer for song uploads
@@ -3909,31 +4030,61 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            // Stream control: /play [song_index]
+                            // Stream control: /play [song_index | youtube_url]
                             else if (String(message).startsWith("/play")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
                                         const args = String(message).replace(/^\/play\s*/, '').trim();
-                                        const songIndex = args ? parseInt(args) : undefined;
                                         
-                                        if (songIndex !== undefined) {
-                                            streamState.currentSongIndex = songIndex;
+                                        // Check if argument is a YouTube URL
+                                        if (args && isYouTubeUrl(args)) {
+                                            sendMessage(`📥 Downloading from YouTube... Please wait.`);
+                                            logger.info(`🎵 Admin ${user_id} triggered /play with YouTube URL: ${args}`);
+                                            
+                                            try {
+                                                const result = await downloadYouTubeAsMP3(args);
+                                                
+                                                // Set the stream to play the newly downloaded song
+                                                streamState.currentSongIndex = result.index;
+                                                streamState.status = 'playing';
+                                                streamState.timestamp = Date.now();
+                                                
+                                                // Broadcast to SSE + WebSocket clients
+                                                broadcastStreamEvent({ 
+                                                    action: 'play', 
+                                                    songIndex: streamState.currentSongIndex,
+                                                    timestamp: streamState.timestamp 
+                                                });
+                                                
+                                                sendMessage(`✅ Downloaded: ${result.title}\n▶️ Now playing song #${streamState.currentSongIndex + 1}`);
+                                            } catch (downloadErr) {
+                                                sendMessage(`❌ Download failed: ${downloadErr.message}`);
+                                                logger.error(`YouTube download error: ${downloadErr.message}`);
+                                            }
+                                        } else {
+                                            // Regular play command with optional song index
+                                            const songIndex = args ? parseInt(args) : undefined;
+                                            
+                                            if (songIndex !== undefined && !isNaN(songIndex)) {
+                                                streamState.currentSongIndex = songIndex;
+                                            }
+                                            streamState.status = 'playing';
+                                            streamState.timestamp = Date.now();
+                                            
+                                            // Broadcast to SSE + WebSocket clients
+                                            broadcastStreamEvent({ 
+                                                action: 'play', 
+                                                songIndex: streamState.currentSongIndex,
+                                                timestamp: streamState.timestamp 
+                                            });
+                                            
+                                            sendMessage(`▶️ Stream: Playing song #${streamState.currentSongIndex + 1}`);
+                                            logger.info(`🎵 Admin ${user_id} triggered /play`);
                                         }
-                                        streamState.status = 'playing';
-                                        streamState.timestamp = Date.now();
-                                        
-                                        // Broadcast to SSE + WebSocket clients
-                                        broadcastStreamEvent({ 
-                                            action: 'play', 
-                                            songIndex: streamState.currentSongIndex,
-                                            timestamp: streamState.timestamp 
-                                        });
-                                        
-                                        sendMessage(`▶️ Stream: Playing song #${streamState.currentSongIndex + 1}`);
-                                        logger.info(`🎵 Admin ${user_id} triggered /play`);
                                     } catch (err) {
                                         sendMessage("Error processing play command.");
+                                        logger.error(`/play error: ${err.message}`);
                                     }
                                 } else {
                                     sendMessage(`You are not eligible to use this command.`);
