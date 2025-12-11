@@ -204,18 +204,37 @@ export default function StreamPage() {
 
       player.addListener('initialization_error', ({ message }: { message: string }) => {
         console.error('Spotify init error:', message);
+        toast({ title: "Spotify Error", description: message, variant: "destructive" });
       });
 
       player.addListener('authentication_error', ({ message }: { message: string }) => {
         console.error('Spotify auth error:', message);
         setSpotifyConnected(false);
+        toast({ title: "Spotify Auth Error", description: "Please reconnect to Spotify", variant: "destructive" });
       });
 
       player.addListener('playback_error', ({ message }: { message: string }) => {
         console.error('Spotify playback error:', message);
+        toast({ title: "Playback Error", description: message, variant: "destructive" });
       });
 
-      player.connect();
+      player.addListener('autoplay_failed', () => {
+        console.log('Autoplay is not allowed by the browser');
+        toast({ title: "Autoplay Blocked", description: "Click play to start music", variant: "default" });
+      });
+
+      // Activate element for autoplay policy
+      player.activateElement();
+      
+      player.connect().then((success: boolean) => {
+        if (success) {
+          console.log('Spotify player connected successfully');
+        } else {
+          console.error('Failed to connect Spotify player');
+          toast({ title: "Connection Failed", description: "Could not connect to Spotify. Make sure you have Premium.", variant: "destructive" });
+        }
+      });
+      
       setSpotifyPlayer(player);
     };
 
