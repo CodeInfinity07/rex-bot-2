@@ -215,10 +215,23 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const conversationHistory = new Map();
 
 // Agora configuration for live streaming
-const AGORA_APP_ID = process.env.AGORA_APP_ID;
-const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
-const AGORA_TOKEN = process.env.AGORA_TOKEN;
-const AGORA_USER_ID = process.env.AGORA_USER_ID;
+// Mutable Agora credentials object - updated when CJA/REA messages are received
+let agoraCredentials = {
+    appId: process.env.AGORA_APP_ID || '',
+    channel: process.env.AGORA_CHANNEL || '',
+    token: process.env.AGORA_TOKEN || '',
+    userId: process.env.AGORA_USER_ID || '0'
+};
+
+// Function to update Agora credentials globally
+function updateAgoraCredentials(newChannel, newToken) {
+    agoraCredentials.channel = newChannel;
+    agoraCredentials.token = newToken;
+    // Also update process.env for consistency
+    process.env.AGORA_CHANNEL = newChannel;
+    process.env.AGORA_TOKEN = newToken;
+    logger.info(`🔄 Agora credentials updated in memory: channel=${newChannel}`);
+}
 
 // Bot control secret for WebSocket authentication
 const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
@@ -3010,7 +3023,7 @@ app.post('/api/jack/stream-control/stop', authMiddleware, (req, res) => {
 // Get stream config (Agora credentials) - PUBLIC for stream listeners
 app.get('/api/jack/stream-config', async (req, res) => {
     try {
-        if (!AGORA_APP_ID || !AGORA_CHANNEL || !AGORA_TOKEN) {
+        if (!agoraCredentials.appId || !agoraCredentials.channel || !agoraCredentials.token) {
             return res.json({ 
                 success: false, 
                 message: 'Stream configuration not set. Please add AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN, and AGORA_USER_ID to your .env file.' 
@@ -3020,10 +3033,10 @@ app.get('/api/jack/stream-config', async (req, res) => {
         res.json({
             success: true,
             data: {
-                appId: AGORA_APP_ID,
-                channel: AGORA_CHANNEL,
-                token: AGORA_TOKEN,
-                userId: AGORA_USER_ID || '0'
+                appId: agoraCredentials.appId,
+                channel: agoraCredentials.channel,
+                token: agoraCredentials.token,
+                userId: agoraCredentials.userId
             }
         });
     } catch (error) {
@@ -3710,9 +3723,11 @@ async function connectWebSocket() {
                             const agora_channel = jsonMessage.PY.VC.VCH;
                             const agora_token = jsonMessage.PY.VC.AT;
                             
-                            // Save Agora credentials to .env for reconnection
+                            // Save Agora credentials to .env AND update in-memory object
                             if (agora_channel && agora_token) {
                                 await updateEnvCredentials({ AGORA_CHANNEL: agora_channel, AGORA_TOKEN: agora_token });
+                                // Update global mutable object so /rec and stream-config use new credentials
+                                updateAgoraCredentials(agora_channel, agora_token);
                                 logger.info(`🎤 Agora credentials updated: Channel=${agora_channel.substring(0, 10)}...`);
                             }
                             
@@ -4180,10 +4195,8 @@ async function connectWebSocket() {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
-                                        const agoraChannel = process.env.AGORA_CHANNEL;
-                                        const agoraToken = process.env.AGORA_TOKEN;
-                                        
-                                        if (!agoraChannel || !agoraToken) {
+                                        // Use in-memory agoraCredentials (updated by CJA/REA messages)
+                                        if (!agoraCredentials.channel || !agoraCredentials.token) {
                                             sendMessage(`❌ Agora credentials not available. Rejoin the club first.`);
                                             return;
                                         }
@@ -4194,8 +4207,8 @@ async function connectWebSocket() {
                                         
                                         broadcastStreamEvent({ 
                                             action: 'reconnect',
-                                            agoraChannel: agoraChannel,
-                                            agoraToken: agoraToken,
+                                            agoraChannel: agoraCredentials.channel,
+                                            agoraToken: agoraCredentials.token,
                                             songIndex: 0,
                                             timestamp: streamState.timestamp 
                                         });
