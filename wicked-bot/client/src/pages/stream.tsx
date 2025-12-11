@@ -104,9 +104,14 @@ export default function StreamPage() {
             }).catch(err => console.error('Error resuming:', err));
             toast({ title: "Remote Play", description: "Admin resumed playback" });
           } else if (data.songIndex !== undefined) {
-            // Start playing a specific song
-            setCurrentIndex(data.songIndex);
-            pendingActionRef.current = 'play';
+            // Start playing a specific song (or restart current song)
+            if (currentIndex === data.songIndex) {
+              // Same song index - force play by calling playLocalAudio directly
+              playLocalAudio(data.songIndex);
+            } else {
+              setCurrentIndex(data.songIndex);
+              pendingActionRef.current = 'play';
+            }
             toast({ title: "Remote Play", description: "Admin triggered play command" });
           }
         } else if (data.action === 'pause') {
