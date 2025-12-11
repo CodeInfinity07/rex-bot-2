@@ -221,6 +221,18 @@ const AGORA_USER_ID = process.env.AGORA_USER_ID;
 // Bot control secret for WebSocket authentication
 const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
 
+// Spotify configuration
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || 'https://wickedrex-143.botpanels.live/api/jack/spotify/callback';
+
+// Spotify token storage
+let spotifyTokens = {
+    accessToken: null,
+    refreshToken: null,
+    expiresAt: 0
+};
+
 // Ensure songs directory exists
 async function ensureSongsDir() {
     try {
@@ -4599,6 +4611,167 @@ async function connectWebSocket() {
         }
     });
 }
+
+// ==================== SPOTIFY ENDPOINTS ====================
+
+// Spotify login - redirect to Spotify authorization
+app.get('/api/jack/spotify/login', (req, res) => {
+    if (!SPOTIFY_CLIENT_ID) {
+        return res.status(500).json({ success: false, message: 'Spotify not configured. Please set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET environment variables.' });
+    }
+
+    const scopes = [
+        'streaming',
+        'user-read-email',
+        'user-read-private',
+        'user-read-playback-state',
+        'user-modify-playback-state'
+    ].join(' ');
+
+    const authUrl = `https://accounts.spotify.com/authorize?` +
+        `client_id=${SPOTIFY_CLIENT_ID}` +
+        `&response_type=code` +
+        `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
+        `&scope=${encodeURIComponent(scopes)}` +
+        `&show_dialog=true`;
+
+    res.redirect(authUrl);
+});
+
+// Spotify callback - exchange code for tokens
+app.get('/api/jack/spotify/callback', async (req, res) => {
+    const { code, error } = req.query;
+
+    if (error) {
+        return res.redirect('/stream?spotify_error=' + encodeURIComponent(error));
+    }
+
+    if (!code) {
+        return res.redirect('/stream?spotify_error=no_code');
+    }
+
+    try {
+        const response = await axios.post(
+            'https://accounts.spotify.com/api/token',
+            new URLSearchParams({
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: SPOTIFY_REDIRECT_URI
+            }).toString(),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Authorization': 'Basic ' + Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64')
+                }
+            }
+        );
+
+        spotifyTokens = {
+            accessToken: response.data.access_token,
+            refreshToken: response.data.refresh_token,
+            expiresAt: Date.now() + (response.data.expires_in * 1000)
+        };
+
+        logger.info('✅ Spotify tokens obtained successfully');
+        res.redirect('/stream?spotify_connected=true');
+    } catch (err) {
+        logger.error(`❌ Spotify token exchange failed: ${JSON.stringify(err.response?.data) || err.message}`);
+        res.redirect('/stream?spotify_error=token_exchange_failed');
+    }
+});
+
+// Get Spotify access token (with auto-refresh)
+app.get('/api/jack/spotify/token', async (req, res) => {
+    try {
+        // Check if we need to refresh
+        if (spotifyTokens.accessToken && spotifyTokens.expiresAt < Date.now() + 60000) {
+            // Token expires in less than 1 minute, refresh it
+            if (spotifyTokens.refreshToken) {
+                try {
+                    const response = await axios.post(
+                        'https://accounts.spotify.com/api/token',
+                        new URLSearchParams({
+                            grant_type: 'refresh_token',
+                            refresh_token: spotifyTokens.refreshToken
+                        }).toString(),
+                        {
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Authorization': 'Basic ' + Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64')
+                            }
+                        }
+                    );
+
+                    spotifyTokens.accessToken = response.data.access_token;
+                    spotifyTokens.expiresAt = Date.now() + (response.data.expires_in * 1000);
+                    if (response.data.refresh_token) {
+                        spotifyTokens.refreshToken = response.data.refresh_token;
+                    }
+                    logger.info('🔄 Spotify token refreshed successfully');
+                } catch (refreshError) {
+                    logger.error(`❌ Spotify token refresh failed: ${refreshError.message}`);
+                    spotifyTokens = { accessToken: null, refreshToken: null, expiresAt: 0 };
+                }
+            }
+        }
+
+        if (spotifyTokens.accessToken) {
+            res.json({ success: true, data: { accessToken: spotifyTokens.accessToken } });
+        } else {
+            res.json({ success: false, message: 'Not authenticated with Spotify' });
+        }
+    } catch (err) {
+        res.json({ success: false, message: err.message });
+    }
+});
+
+// Get Spotify connection status
+app.get('/api/jack/spotify/status', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            connected: !!spotifyTokens.accessToken,
+            configured: !!(SPOTIFY_CLIENT_ID && SPOTIFY_CLIENT_SECRET)
+        }
+    });
+});
+
+// Spotify search
+app.get('/api/jack/spotify/search', async (req, res) => {
+    const { q, type = 'track', limit = 20 } = req.query;
+
+    if (!spotifyTokens.accessToken) {
+        return res.status(401).json({ success: false, message: 'Not authenticated with Spotify' });
+    }
+
+    if (!q) {
+        return res.status(400).json({ success: false, message: 'Search query required' });
+    }
+
+    try {
+        const response = await axios.get('https://api.spotify.com/v1/search', {
+            headers: {
+                'Authorization': `Bearer ${spotifyTokens.accessToken}`
+            },
+            params: { q, type, limit }
+        });
+
+        res.json({ success: true, data: response.data });
+    } catch (err) {
+        if (err.response?.status === 401) {
+            spotifyTokens = { accessToken: null, refreshToken: null, expiresAt: 0 };
+            return res.status(401).json({ success: false, message: 'Spotify token expired' });
+        }
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Spotify logout
+app.post('/api/jack/spotify/logout', (req, res) => {
+    spotifyTokens = { accessToken: null, refreshToken: null, expiresAt: 0 };
+    logger.info('🔓 Spotify logged out');
+    res.json({ success: true, message: 'Logged out from Spotify' });
+});
 
 // Create HTTP server from Express app
 const server = http.createServer(app);
