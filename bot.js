@@ -277,6 +277,7 @@ async function downloadYouTubeAsMP3(youtubeUrl) {
             logger.info(`📥 Starting YouTube download: ${youtubeUrl}`);
             
             const args = [
+                '--cookies', 'cookies.txt',
                 '--extractor-args', 'youtube:player_client=android',
                 '-x',
                 '--audio-format', 'mp3',
