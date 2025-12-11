@@ -13,7 +13,7 @@ const mysql = require('mysql2/promise');
 const WebSocket = require('ws');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const { spawn } = require('child_process');
+const { Downloader } = require('ytdl-mp3');
 
 require('dotenv').config();
 
@@ -264,117 +264,75 @@ async function saveSongsMetadata(songs) {
     await fs.writeFile(SONGS_METADATA_FILE, JSON.stringify(songs, null, 2), 'utf8');
 }
 
-// Download YouTube video as MP3 using yt-dlp
-async function downloadYouTubeAsMP3(youtubeUrl, progressCallback = null) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            await ensureSongsDir();
-            
-            // Generate unique filename
-            const uniqueId = crypto.randomUUID().slice(0, 8);
-            const tempFilename = `yt_${uniqueId}`;
-            const outputTemplate = path.join(SONGS_DIR, `${tempFilename}.%(ext)s`);
-            
-            // Use yt-dlp to download and convert to MP3
-            const args = [
-                '-x',                           // Extract audio
-                '--audio-format', 'mp3',        // Convert to MP3
-                '--audio-quality', '0',         // Best quality
-                '-o', outputTemplate,           // Output template
-                '--no-playlist',                // Don't download playlist
-                '--print', 'title',             // Print title to stdout
-                youtubeUrl
-            ];
-            
-            logger.info(`📥 Starting YouTube download: ${youtubeUrl}`);
-            
-            const ytdlp = spawn('yt-dlp', args);
-            let videoTitle = '';
-            let errorOutput = '';
-            
-            ytdlp.stdout.on('data', (data) => {
-                const output = data.toString().trim();
-                if (output && !output.includes('[')) {
-                    videoTitle = output;
-                }
-                if (progressCallback) {
-                    progressCallback(output);
-                }
-            });
-            
-            ytdlp.stderr.on('data', (data) => {
-                const output = data.toString();
-                errorOutput += output;
-                logger.info(`yt-dlp: ${output}`);
-            });
-            
-            ytdlp.on('error', (err) => {
-                logger.error(`yt-dlp spawn error: ${err.message}`);
-                reject(new Error('yt-dlp not installed or not accessible. Please install yt-dlp and ffmpeg.'));
-            });
-            
-            ytdlp.on('close', async (code) => {
-                if (code !== 0) {
-                    logger.error(`yt-dlp exited with code ${code}: ${errorOutput}`);
-                    reject(new Error(`Download failed: ${errorOutput || 'Unknown error'}`));
-                    return;
-                }
-                
-                // Find the downloaded MP3 file
-                const mp3Filename = `${tempFilename}.mp3`;
-                const mp3Path = path.join(SONGS_DIR, mp3Filename);
-                
-                try {
-                    await fs.access(mp3Path);
-                    
-                    // Get file stats
-                    const stats = await fs.stat(mp3Path);
-                    
-                    // Clean up video title for display
-                    const cleanTitle = videoTitle || `YouTube_${uniqueId}`;
-                    
-                    // Add to songs metadata
-                    let songsMetadata = await loadSongsMetadata();
-                    if (!Array.isArray(songsMetadata)) {
-                        songsMetadata = songsMetadata.songs || [];
-                    }
-                    
-                    const newSong = {
-                        id: uniqueId,
-                        filename: mp3Filename,
-                        originalName: `${cleanTitle}.mp3`,
-                        size: stats.size,
-                        youtubeUrl: youtubeUrl,
-                        addedAt: new Date().toISOString()
-                    };
-                    
-                    // Check if we need to maintain format
-                    if (Array.isArray(songsMetadata)) {
-                        songsMetadata.push(newSong);
-                        await saveSongsMetadata({ songs: songsMetadata });
-                    } else {
-                        songsMetadata.songs = songsMetadata.songs || [];
-                        songsMetadata.songs.push(newSong);
-                        await saveSongsMetadata(songsMetadata);
-                    }
-                    
-                    logger.info(`✅ YouTube download complete: ${cleanTitle}`);
-                    resolve({
-                        success: true,
-                        song: newSong,
-                        title: cleanTitle,
-                        index: songsMetadata.length - 1 || (songsMetadata.songs ? songsMetadata.songs.length - 1 : 0)
-                    });
-                } catch (err) {
-                    logger.error(`MP3 file not found after download: ${mp3Path}`);
-                    reject(new Error('Downloaded file not found'));
-                }
-            });
-        } catch (err) {
-            logger.error(`YouTube download error: ${err.message}`);
-            reject(err);
+// Download YouTube video as MP3 using ytdl-mp3
+async function downloadYouTubeAsMP3(youtubeUrl) {
+    try {
+        await ensureSongsDir();
+        
+        const uniqueId = crypto.randomUUID().slice(0, 8);
+        
+        logger.info(`📥 Starting YouTube download: ${youtubeUrl}`);
+        
+        // Create downloader with output directory
+        const downloader = new Downloader({
+            getTags: false,  // Skip iTunes tags for speed
+            outputDir: SONGS_DIR
+        });
+        
+        // Download the song - returns the file path
+        const downloadedPath = await downloader.downloadSong(youtubeUrl);
+        
+        logger.info(`📥 Downloaded to: ${downloadedPath}`);
+        
+        // Get just the filename from the path
+        const originalFilename = path.basename(downloadedPath);
+        
+        // Rename to include unique ID to avoid conflicts
+        const newFilename = `yt_${uniqueId}_${originalFilename}`;
+        const newPath = path.join(SONGS_DIR, newFilename);
+        
+        await fs.rename(downloadedPath, newPath);
+        
+        // Get file stats
+        const stats = await fs.stat(newPath);
+        
+        // Extract title from filename (remove .mp3 extension)
+        const cleanTitle = originalFilename.replace(/\.mp3$/i, '');
+        
+        // Add to songs metadata
+        let songsMetadata = await loadSongsMetadata();
+        let songsArray = [];
+        
+        if (Array.isArray(songsMetadata)) {
+            songsArray = songsMetadata;
+        } else if (songsMetadata && songsMetadata.songs) {
+            songsArray = songsMetadata.songs;
         }
-    });
+        
+        const newSong = {
+            id: uniqueId,
+            filename: newFilename,
+            originalName: `${cleanTitle}.mp3`,
+            size: stats.size,
+            youtubeUrl: youtubeUrl,
+            addedAt: new Date().toISOString()
+        };
+        
+        songsArray.push(newSong);
+        await saveSongsMetadata({ songs: songsArray });
+        
+        logger.info(`✅ YouTube download complete: ${cleanTitle}`);
+        
+        return {
+            success: true,
+            song: newSong,
+            title: cleanTitle,
+            index: songsArray.length - 1
+        };
+    } catch (err) {
+        logger.error(`YouTube download error: ${err.message}`);
+        throw err;
+    }
 }
 
 // Check if URL is a YouTube link
