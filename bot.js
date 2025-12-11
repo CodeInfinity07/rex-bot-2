@@ -3087,7 +3087,7 @@ async function loadAllConfigurations() {
 async function initializeBot() {
     try {
         await loadAllConfigurations();
-        await initializeMySQL();
+        // MySQL is already initialized before server.listen()
 
         if (!botConfig.settings) {
             botConfig.settings = {
@@ -4832,11 +4832,16 @@ dashboardWss.on('connection', (ws, req) => {
     });
 });
 
-// Start HTTP server (with WebSocket support)
-server.listen(PORT, async () => {
-    logger.info(`🚀 Bot ${botConfig.botConfiguration?.botName} API server running on port ${PORT}`);
-    logger.info(`📱 Dashboard available at http://localhost:${PORT}`);
-    logger.info(`📡 Dashboard WebSocket available at ws://localhost:${PORT}/ws/stream-control`);
+// Initialize and start server
+(async () => {
+    // Initialize MySQL FIRST before starting HTTP server
+    await initializeMySQL();
+    
+    server.listen(PORT, async () => {
+        logger.info(`🚀 Bot ${botConfig.botConfiguration?.botName} API server running on port ${PORT}`);
+        logger.info(`📱 Dashboard available at http://localhost:${PORT}`);
+        logger.info(`📡 Dashboard WebSocket available at ws://localhost:${PORT}/ws/stream-control`);
 
-    await initializeBot();
-});
+        await initializeBot();
+    });
+})();
