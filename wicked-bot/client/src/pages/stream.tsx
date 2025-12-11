@@ -106,8 +106,13 @@ export default function StreamPage() {
           } else if (data.songIndex !== undefined) {
             // Start playing a specific song (or restart current song)
             if (currentIndex === data.songIndex) {
-              // Same song index - force play by calling playLocalAudio directly
-              playLocalAudio(data.songIndex);
+              // Same song index - check if songs are loaded first
+              if (songsRef.current.length > 0) {
+                playLocalAudio(data.songIndex);
+              } else {
+                // Songs not loaded yet, set pending action
+                pendingActionRef.current = 'play';
+              }
             } else {
               setCurrentIndex(data.songIndex);
               pendingActionRef.current = 'play';
@@ -226,7 +231,7 @@ export default function StreamPage() {
     };
   }, []);
 
-  // Handle pending SSE actions after currentIndex updates (works without Agora connection)
+  // Handle pending SSE actions after currentIndex updates OR songs load (works without Agora connection)
   useEffect(() => {
     if (pendingActionRef.current && songs.length > 0) {
       const action = pendingActionRef.current;
@@ -239,7 +244,7 @@ export default function StreamPage() {
         }
       }, 100);
     }
-  }, [currentIndex, songs.length]);
+  }, [currentIndex, songs.length, songs]);
 
   useEffect(() => {
     if (audioElementRef.current) {
