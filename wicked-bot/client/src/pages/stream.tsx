@@ -49,10 +49,14 @@ export default function StreamPage() {
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
 
-  const { data: configData } = useQuery({
+  // Use bot.js API URL for stream config (where updated credentials are stored)
+  const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
+
+  const { data: configData, refetch: refetchConfig } = useQuery({
     queryKey: ['/api/jack/stream-config'],
     queryFn: async () => {
-      const res = await fetch('/api/jack/stream-config');
+      const url = botApiUrl ? `${botApiUrl}/api/jack/stream-config` : '/api/jack/stream-config';
+      const res = await fetch(url);
       return res.json();
     }
   });
@@ -60,7 +64,8 @@ export default function StreamPage() {
   const { data: songsData } = useQuery({
     queryKey: ['/api/jack/stream-songs'],
     queryFn: async () => {
-      const res = await fetch('/api/jack/stream-songs');
+      const url = botApiUrl ? `${botApiUrl}/api/jack/stream-songs` : '/api/jack/stream-songs';
+      const res = await fetch(url);
       return res.json();
     }
   });
@@ -81,7 +86,6 @@ export default function StreamPage() {
 
   // Connect to SSE for stream control events from external bot.js
   useEffect(() => {
-    const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
     const sseUrl = botApiUrl ? `${botApiUrl}/api/jack/stream-events` : '/api/jack/stream-events';
     console.log('Connecting to SSE at:', sseUrl);
     const eventSource = new EventSource(sseUrl);
@@ -125,7 +129,7 @@ export default function StreamPage() {
             toast({ title: "Remote Stop", description: "Admin stopped the stream" });
           }
         } else if (data.action === 'reconnect') {
-          // Reconnect with new Agora credentials
+          // Reconnect with new Agora credentials from bot.js
           toast({ title: "Reconnecting", description: "Admin triggered Agora reconnect..." });
           
           // First disconnect any existing connection
@@ -149,41 +153,51 @@ export default function StreamPage() {
             console.error('Error disconnecting for reconnect:', err);
           }
           
-          // Now reconnect with new credentials if provided
-          if (data.agoraChannel && data.agoraToken && streamConfig) {
-            try {
+          // Fetch fresh config from bot.js (which has updated credentials)
+          try {
+            const configUrl = botApiUrl ? `${botApiUrl}/api/jack/stream-config` : '/api/jack/stream-config';
+            const configRes = await fetch(configUrl);
+            const freshConfig = await configRes.json();
+            
+            if (freshConfig.success && freshConfig.data) {
+              const { appId, channel, token, userId } = freshConfig.data;
+              
               setIsConnecting(true);
               const client = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
               clientRef.current = client;
               
-              await client.join(
-                streamConfig.appId,
-                data.agoraChannel,
-                data.agoraToken,
-                streamConfig.userId
-              );
+              await client.join(appId, channel, token, userId);
               
               setIsConnected(true);
               setCurrentIndex(0);
+              
+              // Refetch the query cache so UI reflects new config
+              refetchConfig();
               
               // Start playing first song
               setTimeout(() => {
                 playLocalAudio(0);
               }, 500);
               
-              toast({ title: "Reconnected", description: `Joined channel: ${data.agoraChannel}` });
-            } catch (err: any) {
-              console.error('Error reconnecting:', err);
-              toast({ title: "Reconnect Failed", description: err.message || "Could not reconnect", variant: "destructive" });
-            } finally {
-              setIsConnecting(false);
+              toast({ title: "Reconnected", description: `Joined channel: ${channel}` });
+            } else {
+              // Just play locally without Agora if no credentials
+              setCurrentIndex(0);
+              setTimeout(() => {
+                playLocalAudio(0);
+              }, 100);
+              toast({ title: "Playing Locally", description: "No Agora credentials available" });
             }
-          } else {
-            // Just play locally without Agora if no credentials
+          } catch (err: any) {
+            console.error('Error reconnecting:', err);
+            toast({ title: "Reconnect Failed", description: err.message || "Could not reconnect", variant: "destructive" });
+            // Fallback to local playback
             setCurrentIndex(0);
             setTimeout(() => {
               playLocalAudio(0);
             }, 100);
+          } finally {
+            setIsConnecting(false);
           }
         }
       } catch (err) {
