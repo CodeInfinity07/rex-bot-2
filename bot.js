@@ -401,23 +401,42 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 
 // Session helper functions (MySQL-backed for persistence across restarts)
 async function getSession(token) {
-    if (!mysqlPool) return null;
+    if (!mysqlPool) {
+        logger.warn('⚠️ getSession called but MySQL pool not available');
+        return null;
+    }
     try {
         const [rows] = await mysqlPool.query(
             'SELECT user_id, role, login_time FROM dashboard_sessions WHERE token = ?',
             [token]
         );
         if (rows && rows.length > 0) {
+            const loginTime = rows[0].login_time;
             return {
                 userId: rows[0].user_id,
                 role: rows[0].role,
-                loginTime: rows[0].login_time.toISOString()
+                loginTime: loginTime ? loginTime.toISOString() : new Date().toISOString()
             };
         }
         return null;
     } catch (error) {
         logger.error('Error getting session from MySQL:', error.message);
         return null;
+    }
+}
+
+// Clean up expired sessions (older than 30 days)
+async function cleanupExpiredSessions() {
+    if (!mysqlPool) return;
+    try {
+        const result = await mysqlPool.query(
+            'DELETE FROM dashboard_sessions WHERE login_time < DATE_SUB(NOW(), INTERVAL 30 DAY)'
+        );
+        if (result[0].affectedRows > 0) {
+            logger.info(`🧹 Cleaned up ${result[0].affectedRows} expired sessions`);
+        }
+    } catch (error) {
+        logger.error('Error cleaning up expired sessions:', error.message);
     }
 }
 
@@ -4865,6 +4884,17 @@ dashboardWss.on('connection', (ws, req) => {
 (async () => {
     // Initialize MySQL FIRST before starting HTTP server
     await initializeMySQL();
+    
+    // Clean up expired sessions and log active session count
+    if (mysqlPool) {
+        await cleanupExpiredSessions();
+        try {
+            const [rows] = await mysqlPool.query('SELECT COUNT(*) as count FROM dashboard_sessions');
+            logger.info(`🔐 Active sessions in database: ${rows[0].count}`);
+        } catch (err) {
+            logger.error('Error counting sessions:', err.message);
+        }
+    }
     
     server.listen(PORT, async () => {
         logger.info(`🚀 Bot ${botConfig.botConfiguration?.botName} API server running on port ${PORT}`);
