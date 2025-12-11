@@ -139,22 +139,23 @@ export default function StreamPage() {
   const initSpotifyPlayer = useCallback(async () => {
     if (spotifyPlayer) return;
 
-    // Get access token
+    console.log('Initializing Spotify player...');
+
+    // Get access token first
     const tokenRes = await fetch('/api/jack/spotify/token');
     const tokenData = await tokenRes.json();
-    if (!tokenData.success) return;
+    if (!tokenData.success) {
+      console.error('Failed to get Spotify token:', tokenData.message);
+      toast({ title: "Token Error", description: "Could not get Spotify access token", variant: "destructive" });
+      return;
+    }
     
+    console.log('Got Spotify access token');
     spotifyTokenRef.current = tokenData.data.accessToken;
 
-    // Load Spotify SDK script if not already loaded
-    if (!window.Spotify) {
-      const script = document.createElement('script');
-      script.src = 'https://sdk.scdn.co/spotify-player.js';
-      script.async = true;
-      document.body.appendChild(script);
-    }
-
-    window.onSpotifyWebPlaybackSDKReady = () => {
+    // Define the player creation function
+    const createPlayer = () => {
+      console.log('Creating Spotify player instance...');
       const player = new window.Spotify.Player({
         name: 'RexSquad Stream Player',
         getOAuthToken: async (cb: (token: string) => void) => {
@@ -238,9 +239,30 @@ export default function StreamPage() {
       setSpotifyPlayer(player);
     };
 
-    // If SDK already loaded, trigger the callback
+    // If SDK already loaded, create player immediately
     if (window.Spotify) {
-      window.onSpotifyWebPlaybackSDKReady();
+      console.log('Spotify SDK already loaded, creating player...');
+      createPlayer();
+    } else {
+      // Load SDK script and set callback
+      console.log('Loading Spotify SDK script...');
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        console.log('Spotify SDK ready callback fired');
+        createPlayer();
+      };
+      
+      // Check if script already exists
+      const existingScript = document.querySelector('script[src="https://sdk.scdn.co/spotify-player.js"]');
+      if (!existingScript) {
+        const script = document.createElement('script');
+        script.src = 'https://sdk.scdn.co/spotify-player.js';
+        script.async = true;
+        script.onerror = () => {
+          console.error('Failed to load Spotify SDK script');
+          toast({ title: "SDK Error", description: "Failed to load Spotify player", variant: "destructive" });
+        };
+        document.body.appendChild(script);
+      }
     }
   }, [spotifyPlayer, volume, toast]);
 
