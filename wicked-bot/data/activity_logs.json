@@ -1,5 +1,15 @@
 [
   {
+    "id": "40c01648-1f89-4a67-9d7a-e5a80c4bc8a5",
+    "userId": "owner_rex",
+    "userRole": "owner",
+    "action": "LOGIN",
+    "details": {
+      "message": "Owner logged in"
+    },
+    "timestamp": "2025-12-10T06:15:40.697Z"
+  },
+  {
     "id": "3333d682-17c3-442d-be8d-7e6841c9a01c",
     "userId": "owner_rex",
     "userRole": "owner",
