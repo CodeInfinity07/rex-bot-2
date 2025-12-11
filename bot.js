@@ -3807,6 +3807,8 @@ async function connectWebSocket() {
                             const target_uid = jsonMessage.PY.UID;
                             if (target_uid === my_uid) {
                                 botMic = Number(jsonMessage.PY.IN);
+                                onMic = true;
+                                logger.info(`🎤 Bot joined mic #${botMic}`);
                             }
                         }
 
@@ -4056,6 +4058,21 @@ async function connectWebSocket() {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
+                                        // Check if bot is on mic, if not join first
+                                        if (!onMic) {
+                                            joinAdminMic(1);
+                                            // Wait for mic confirmation (up to 3 seconds)
+                                            let waited = 0;
+                                            while (!onMic && waited < 3000) {
+                                                await new Promise(resolve => setTimeout(resolve, 200));
+                                                waited += 200;
+                                            }
+                                            if (!onMic) {
+                                                sendMessage(`❌ I am not on mic currently.`);
+                                                return;
+                                            }
+                                        }
+                                        
                                         const args = String(message).replace(/^\/play\s*/, '').trim();
                                         
                                         // Check if argument is a YouTube URL
@@ -4702,7 +4719,7 @@ async function connectWebSocket() {
                     })
                 });
                 sendWebSocketMessageAsync(join_mic);
-                onMic = true;
+                // onMic will be set to true when TMS confirmation is received
             }
 
             function joinAdminMic(mic = 1) {
@@ -4716,7 +4733,7 @@ async function connectWebSocket() {
                     })
                 });
                 sendWebSocketMessage(join_mic);
-                onMic = true;
+                // onMic will be set to true when TMS confirmation is received
             }
 
             function checkBannedUsers() {
