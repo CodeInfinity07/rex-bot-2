@@ -192,13 +192,17 @@ async function fetchBotStatusFromDB(): Promise<{ connected: boolean; connecting:
   }
 }
 
+// App ID for scoping sessions per domain (using CLUB_CODE as unique identifier)
+const APP_ID = process.env.CLUB_CODE || 'default';
+
 // Session helper functions (MySQL-backed for persistence across restarts)
+// Sessions are scoped by app_id to prevent conflicts between multiple domains sharing the same table
 async function getSession(token: string): Promise<{ userId: string; role: string; loginTime: string } | null> {
   if (!mysqlPool) return null;
   try {
     const [rows] = await mysqlPool.query(
-      'SELECT user_id, role, login_time FROM dashboard_sessions WHERE token = ?',
-      [token]
+      'SELECT user_id, role, login_time FROM dashboard_sessions WHERE token = ? AND app_id = ?',
+      [token, APP_ID]
     ) as any;
     if (rows && rows.length > 0) {
       return {
@@ -218,8 +222,8 @@ async function setSession(token: string, sessionData: { userId: string; role: st
   if (!mysqlPool) return false;
   try {
     await mysqlPool.query(
-      'INSERT INTO dashboard_sessions (token, user_id, role, login_time) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), role = VALUES(role), login_time = VALUES(login_time)',
-      [token, sessionData.userId, sessionData.role, new Date(sessionData.loginTime)]
+      'INSERT INTO dashboard_sessions (token, user_id, role, login_time, app_id) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), role = VALUES(role), login_time = VALUES(login_time)',
+      [token, sessionData.userId, sessionData.role, new Date(sessionData.loginTime), APP_ID]
     );
     return true;
   } catch (error: any) {
@@ -231,7 +235,7 @@ async function setSession(token: string, sessionData: { userId: string; role: st
 async function deleteSession(token: string): Promise<boolean> {
   if (!mysqlPool) return false;
   try {
-    await mysqlPool.query('DELETE FROM dashboard_sessions WHERE token = ?', [token]);
+    await mysqlPool.query('DELETE FROM dashboard_sessions WHERE token = ? AND app_id = ?', [token, APP_ID]);
     return true;
   } catch (error: any) {
     logger.error(`Error deleting session from MySQL: ${error.message}`);
@@ -242,7 +246,7 @@ async function deleteSession(token: string): Promise<boolean> {
 async function deleteSessionsByUserId(userId: string): Promise<boolean> {
   if (!mysqlPool) return false;
   try {
-    await mysqlPool.query('DELETE FROM dashboard_sessions WHERE user_id = ?', [userId]);
+    await mysqlPool.query('DELETE FROM dashboard_sessions WHERE user_id = ? AND app_id = ?', [userId, APP_ID]);
     return true;
   } catch (error: any) {
     logger.error(`Error deleting sessions by user ID from MySQL: ${error.message}`);
