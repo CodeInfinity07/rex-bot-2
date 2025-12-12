@@ -73,14 +73,22 @@ export default function StreamPage() {
     }
   });
 
-  const { data: songsData } = useQuery({
+  const { data: songsData, refetch: refetchSongs } = useQuery({
     queryKey: ['/api/jack/stream-songs'],
     queryFn: async () => {
       const url = botApiUrl ? `${botApiUrl}/api/jack/stream-songs` : '/api/jack/stream-songs';
       const res = await fetch(url);
       return res.json();
-    }
+    },
+    refetchInterval: 45000, // Poll for new songs every 45 seconds
   });
+
+  // Log when songs are refreshed
+  useEffect(() => {
+    if (songsData?.data?.length) {
+      console.log(`[Songs] Loaded ${songsData.data.length} songs`);
+    }
+  }, [songsData]);
 
   const streamConfig: StreamConfig | null = configData?.success ? configData.data : null;
   const songs: Song[] = songsData?.data || [];
