@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { promises as fs } from "fs";
 import path from "path";
-import { setupBotIntegration } from "./bot-integration";
+import { setupBotIntegration, initializeBotIntegration } from "./bot-integration";
 
 // File paths for data storage
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -90,6 +90,9 @@ async function writeTextFile(filePath: string, data: string) {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure data directory exists on startup
   await ensureDataDir();
+  
+  // Initialize MySQL BEFORE setting up routes (ensures sessions work immediately)
+  await initializeBotIntegration();
   
   // Setup bot integration with /api/jack/* endpoints
   setupBotIntegration(app);

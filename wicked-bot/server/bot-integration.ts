@@ -2204,9 +2204,18 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // Initialize bot on server start
-  initializeBot();
+  // Initialize bot on server start (must complete before serving requests)
+  initializeBot().then(() => {
+    logger.info('✅ Bot initialized successfully');
+  }).catch(err => {
+    logger.error(`Bot initialization failed: ${err.message}`);
+  });
 
   logger.info('✅ Bot integration endpoints registered');
   logger.info('📡 Bot API available at /api/jack/*');
+}
+
+// Export initialization function for synchronous startup
+export async function initializeBotIntegration(): Promise<void> {
+  await initializeMySQL();
 }
