@@ -106,6 +106,18 @@ async function downloadYouTubeSong(url: string): Promise<{ success: boolean; tit
           });
 
           await fs.writeFile(SONGS_METADATA_PATH, JSON.stringify(metadata, null, 2));
+
+          const newSongIndex = metadata.length - 1;
+          streamState.currentSongIndex = newSongIndex;
+          streamState.status = 'playing';
+          streamState.timestamp = Date.now();
+          
+          broadcastStreamEvent({
+            action: 'play',
+            songIndex: newSongIndex,
+            timestamp: streamState.timestamp
+          });
+
           resolve({ success: true, title });
         } catch (err: any) {
           resolve({ success: false, error: err.message });
