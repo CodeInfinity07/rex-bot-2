@@ -3026,13 +3026,14 @@ app.post('/api/jack/stream-control/pause', authMiddleware, (req, res) => {
 app.post('/api/jack/stream-control/next', authMiddleware, async (req, res) => {
     try {
         // Load songs to get the count
-        let songsMetadata = { songs: [] };
+        let songs = [];
         try {
             const data = await fs.readFile(SONGS_METADATA_FILE, 'utf8');
-            songsMetadata = JSON.parse(data);
+            const parsed = JSON.parse(data);
+            songs = Array.isArray(parsed) ? parsed : (parsed.songs || []);
         } catch (err) {}
 
-        const totalSongs = songsMetadata.songs.length;
+        const totalSongs = songs.length;
         if (totalSongs === 0) {
             return res.json({ success: false, message: 'No songs available' });
         }
@@ -4215,13 +4216,14 @@ async function connectWebSocket() {
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
                                         // Load songs to get the count
-                                        let songsMetadata = { songs: [] };
+                                        let songs = [];
                                         try {
                                             const data = await fs.readFile(SONGS_METADATA_FILE, 'utf8');
-                                            songsMetadata = JSON.parse(data);
+                                            const parsed = JSON.parse(data);
+                                            songs = Array.isArray(parsed) ? parsed : (parsed.songs || []);
                                         } catch (err) {}
                                         
-                                        const totalSongs = songsMetadata.songs.length;
+                                        const totalSongs = songs.length;
                                         if (totalSongs === 0) {
                                             sendMessage(`❌ No songs available in playlist.`);
                                             return;
