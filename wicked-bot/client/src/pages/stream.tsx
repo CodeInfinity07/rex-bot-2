@@ -230,7 +230,8 @@ export default function StreamPage() {
     };
   }, []);
 
-  // Handle pending SSE actions after currentIndex updates OR songs load (works without Agora connection)
+  // Handle pending SSE actions after currentIndex updates OR songs load
+  // Uses Agora streaming if connected, otherwise plays locally
   useEffect(() => {
     if (pendingActionRef.current && songs.length > 0) {
       const action = pendingActionRef.current;
@@ -239,11 +240,17 @@ export default function StreamPage() {
       // Small delay to ensure state is updated
       setTimeout(() => {
         if (action === 'play' || action === 'next') {
-          playLocalAudio(currentIndex);
+          // If Agora is connected, use playSongAtIndex to stream to Agora
+          // Otherwise fall back to local-only playback
+          if (clientRef.current && isConnected) {
+            playSongAtIndex(currentIndex);
+          } else {
+            playLocalAudio(currentIndex);
+          }
         }
       }, 100);
     }
-  }, [currentIndex, songs.length, songs, playTrigger]);
+  }, [currentIndex, songs.length, songs, playTrigger, isConnected]);
 
   useEffect(() => {
     if (audioElementRef.current) {
@@ -333,10 +340,14 @@ export default function StreamPage() {
       };
 
       audio.onended = () => {
-        // Auto-play next song
+        // Auto-play next song - use Agora streaming if connected
         const nextIndex = (index + 1) % songs.length;
         setCurrentIndex(nextIndex);
-        playLocalAudio(nextIndex);
+        if (clientRef.current && isConnected) {
+          playSongAtIndex(nextIndex);
+        } else {
+          playLocalAudio(nextIndex);
+        }
       };
 
       await audio.play();
