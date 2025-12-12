@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Play, Square, RotateCw, Trash2, Activity, Lock, AlertCircle, Code, Key, FileText, Bot, Copy, Check } from "lucide-react";
+import { Play, Square, RotateCw, Trash2, Activity, Lock, AlertCircle, Code, Key, FileText, Bot, Copy, Check, RefreshCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDistanceToNow } from "date-fns";
@@ -184,6 +184,32 @@ export default function BotControls() {
         variant: "destructive",
       });
       closePasswordDialog();
+    },
+  });
+
+  // Regenerate token mutation (reconnects WebSocket to get fresh authMessage)
+  const regenerateTokenMutation = useMutation({
+    mutationFn: async () => {
+      const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
+      return await fetch(`${botApiUrl}/api/jack/regenerate-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).then(res => res.json());
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jack/auth-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jack/status"] });
+      toast({
+        title: "Token Regeneration Started",
+        description: "WebSocket reconnecting to fetch new auth message...",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to regenerate token",
+        variant: "destructive",
+      });
     },
   });
 
@@ -381,7 +407,8 @@ export default function BotControls() {
                     clearCredentialsMutation.isPending || 
                     updateTokenMutation.isPending || 
                     updateOpenAIKeyMutation.isPending ||
-                    updateBotUidMutation.isPending;
+                    updateBotUidMutation.isPending ||
+                    regenerateTokenMutation.isPending;
 
   // Loading state
   if (isLoading) {
@@ -782,7 +809,7 @@ export default function BotControls() {
           <CardDescription>Manage authentication credentials and API keys (requires developer password)</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-4">
             <Button
               onClick={() => openPasswordDialog('clearCredentials')}
               disabled={isPending}
@@ -802,6 +829,15 @@ export default function BotControls() {
               Update Token File
             </Button>
             <Button
+              onClick={() => regenerateTokenMutation.mutate()}
+              disabled={isPending}
+              variant="outline"
+              className="w-full border-cyan-500 text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950"
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Regenerate Token
+            </Button>
+            <Button
               onClick={() => openPasswordDialog('updateOpenAI')}
               disabled={isPending}
               variant="outline"
@@ -812,7 +848,7 @@ export default function BotControls() {
             </Button>
           </div>
           <div className="mt-4 space-y-2 text-xs text-muted-foreground border-t pt-4">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
               <div>
                 <p className="font-semibold text-foreground mb-1">Clear EP & KEY</p>
                 <p>Removes bot authentication credentials from .env file. Use when you want to reset authentication.</p>
@@ -820,6 +856,10 @@ export default function BotControls() {
               <div>
                 <p className="font-semibold text-foreground mb-1">Update Token File</p>
                 <p>Replaces the content of token.txt with new credentials. The bot will read from this file on next restart.</p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground mb-1">Regenerate Token</p>
+                <p>Reconnects WebSocket to get a fresh authentication message. Use when auth expires or needs refresh.</p>
               </div>
               <div>
                 <p className="font-semibold text-foreground mb-1">Update OpenAI Key</p>

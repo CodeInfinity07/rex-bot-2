@@ -2513,6 +2513,41 @@ app.post('/api/jack/restart', async (req, res) => {
     }
 });
 
+app.post('/api/jack/regenerate-token', async (req, res) => {
+    try {
+        logger.info('🔄 Token regeneration requested - reconnecting WebSocket');
+
+        authRequired = false;
+        authMessage = null;
+
+        if (botState.ws) {
+            botState.ws.close();
+            botState.ws = null;
+        }
+
+        botState.connected = false;
+        botState.connecting = true;
+
+        setTimeout(async () => {
+            try {
+                await connectWebSocket();
+                logger.info('✅ WebSocket reconnected for token regeneration');
+            } catch (err) {
+                logger.error('❌ Failed to reconnect WebSocket:', err.message);
+            }
+        }, 500);
+
+        res.json({
+            success: true,
+            message: 'Token regeneration initiated - WebSocket reconnecting'
+        });
+
+    } catch (error) {
+        logger.error('❌ Error during token regeneration:', error.message);
+        res.json({ success: false, message: error.message });
+    }
+});
+
 app.post('/api/jack/settings', async (req, res) => {
     try {
         const { allowAvatars, banLevel, allowGuestIds, punishments } = req.body;
