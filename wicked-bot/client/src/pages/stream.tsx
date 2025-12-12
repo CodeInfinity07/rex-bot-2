@@ -383,21 +383,47 @@ export default function StreamPage() {
 
   // Play a specific song by index (used by SSE events when Agora connected)
   const playSongAtIndex = async (index: number) => {
-    const song = songs[index];
-    if (!song || !clientRef.current) return;
+    const currentSongs = songsRef.current;
+    const song = currentSongs[index];
+    if (!song || !clientRef.current) {
+      console.log('[Agora] No song or client, falling back to local', { song, hasClient: !!clientRef.current });
+      return;
+    }
+
+    console.log(`[Agora] Playing song ${index}: ${song.originalName}`);
 
     try {
+      // Stop and cleanup previous audio completely
       if (audioElementRef.current) {
         audioElementRef.current.pause();
-        if (mediaSourceRef.current) {
+        audioElementRef.current.src = '';
+        audioElementRef.current = null;
+      }
+      
+      // Disconnect old media source
+      if (mediaSourceRef.current) {
+        try {
           mediaSourceRef.current.disconnect();
-          mediaSourceRef.current = null;
-        }
+        } catch (e) {}
+        mediaSourceRef.current = null;
       }
 
+      // Unpublish and close old Agora track FIRST
+      if (audioTrackRef.current) {
+        try {
+          await clientRef.current.unpublish(audioTrackRef.current);
+          audioTrackRef.current.stop();
+          audioTrackRef.current.close();
+        } catch (e) {
+          console.log('[Agora] Error cleaning up old track:', e);
+        }
+        audioTrackRef.current = null;
+      }
+
+      // Create fresh audio element with cache-busting
       const audio = new Audio();
       audio.crossOrigin = "anonymous";
-      audio.src = `/api/jack/songs/file/${song.filename}`;
+      audio.src = `/api/jack/songs/file/${song.filename}?t=${Date.now()}`;
       audio.volume = isMuted ? 0 : volume / 100;
       audioElementRef.current = audio;
 
@@ -410,33 +436,43 @@ export default function StreamPage() {
       };
 
       audio.onended = () => {
-        playNext();
+        const nextIdx = (index + 1) % currentSongs.length;
+        setCurrentIndex(nextIdx);
+        playSongAtIndex(nextIdx);
       };
+
+      // Wait for audio to be ready
+      await new Promise<void>((resolve, reject) => {
+        audio.oncanplaythrough = () => resolve();
+        audio.onerror = () => reject(new Error('Failed to load audio'));
+        audio.load();
+      });
 
       await audio.play();
 
+      // Create fresh audio context nodes
       const audioContext = await getOrCreateAudioContext();
       const source = audioContext.createMediaElementSource(audio);
       mediaSourceRef.current = source;
+      
+      // Create NEW destination for this song
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
       source.connect(audioContext.destination);
 
-      if (audioTrackRef.current) {
-        await clientRef.current.unpublish(audioTrackRef.current);
-        audioTrackRef.current.stop();
-        audioTrackRef.current.close();
-      }
-
+      // Create and publish NEW Agora track
       const track = AgoraRTC.createCustomAudioTrack({
         mediaStreamTrack: destination.stream.getAudioTracks()[0]
       });
       audioTrackRef.current = track;
 
       await clientRef.current.publish(track);
+      console.log(`[Agora] Published new track for: ${song.originalName}`);
+      
       setIsPlaying(true);
       toast({ title: "Now playing", description: song.originalName });
     } catch (error: any) {
+      console.error('[Agora] Playback error:', error);
       toast({ title: "Playback error", description: error.message || "Could not play song", variant: "destructive" });
     }
   };
