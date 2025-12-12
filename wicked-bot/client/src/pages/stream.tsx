@@ -47,7 +47,19 @@ export default function StreamPage() {
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const audioTrackRef = useRef<ILocalAudioTrack | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mediaSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const { toast } = useToast();
+
+  const getOrCreateAudioContext = async () => {
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new AudioContext();
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+    return audioContextRef.current;
+  };
 
   // Use bot.js API URL for stream config (where updated credentials are stored)
   const botApiUrl = import.meta.env.VITE_BOT_API_URL || '';
@@ -267,11 +279,11 @@ export default function StreamPage() {
     setIsConnecting(true);
 
     try {
+      await getOrCreateAudioContext();
+
       const client = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
       clientRef.current = client;
 
-      // Pass userId as string directly - don't convert to number
-      // Agora will include it in the detail["6"] field of the request
       await client.join(
         streamConfig.appId,
         streamConfig.channel,
@@ -302,6 +314,10 @@ export default function StreamPage() {
       if (audioElementRef.current) {
         audioElementRef.current.pause();
         audioElementRef.current = null;
+      }
+      if (mediaSourceRef.current) {
+        mediaSourceRef.current.disconnect();
+        mediaSourceRef.current = null;
       }
     } catch (error) {
       console.error('Error disconnecting:', error);
@@ -365,6 +381,10 @@ export default function StreamPage() {
     try {
       if (audioElementRef.current) {
         audioElementRef.current.pause();
+        if (mediaSourceRef.current) {
+          mediaSourceRef.current.disconnect();
+          mediaSourceRef.current = null;
+        }
       }
 
       const audio = new Audio();
@@ -387,9 +407,9 @@ export default function StreamPage() {
 
       await audio.play();
 
-      // Create audio track from media stream
-      const audioContext = new AudioContext();
+      const audioContext = await getOrCreateAudioContext();
       const source = audioContext.createMediaElementSource(audio);
+      mediaSourceRef.current = source;
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
       source.connect(audioContext.destination);
@@ -419,6 +439,10 @@ export default function StreamPage() {
     try {
       if (audioElementRef.current) {
         audioElementRef.current.pause();
+        if (mediaSourceRef.current) {
+          mediaSourceRef.current.disconnect();
+          mediaSourceRef.current = null;
+        }
       }
 
       const audio = new Audio();
@@ -441,12 +465,12 @@ export default function StreamPage() {
 
       await audio.play();
 
-      // Create audio track from media stream
-      const audioContext = new AudioContext();
+      const audioContext = await getOrCreateAudioContext();
       const source = audioContext.createMediaElementSource(audio);
+      mediaSourceRef.current = source;
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
-      source.connect(audioContext.destination); // Also play locally
+      source.connect(audioContext.destination);
 
       if (audioTrackRef.current) {
         await clientRef.current.unpublish(audioTrackRef.current);
