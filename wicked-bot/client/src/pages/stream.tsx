@@ -253,7 +253,7 @@ export default function StreamPage() {
   // Handle pending SSE actions after currentIndex updates OR songs load
   // Uses Agora streaming if connected, otherwise plays locally
   useEffect(() => {
-    if (pendingActionRef.current && songs.length > 0) {
+    if (pendingActionRef.current && songsRef.current.length > 0) {
       const action = pendingActionRef.current;
       pendingActionRef.current = null;
       
@@ -270,7 +270,7 @@ export default function StreamPage() {
         }
       }, 100);
     }
-  }, [currentIndex, songs.length, songs, playTrigger, isConnected]);
+  }, [currentIndex, playTrigger]);
 
   useEffect(() => {
     if (audioElementRef.current) {
