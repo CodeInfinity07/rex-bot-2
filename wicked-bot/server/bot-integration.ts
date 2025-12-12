@@ -9,6 +9,8 @@ import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
 import bcrypt from 'bcryptjs';
 import mysql from 'mysql2/promise';
+import YTDlpWrapModule from 'yt-dlp-wrap';
+const YTDlpWrap = YTDlpWrapModule.default || YTDlpWrapModule;
 
 // Load environment variables from root .env file (where bot.js is located)
 // The wicked-bot server runs from wicked-bot/ directory, so we go up one level
@@ -42,6 +44,78 @@ const streamState = {
 
 // SSE clients for real-time stream updates
 const streamSSEClients = new Set<Response>();
+
+// YouTube download helper
+const ytDlpWrap = new YTDlpWrap();
+const SONGS_DIR = path.join(process.cwd(), 'data', 'songs');
+const SONGS_METADATA_PATH = path.join(process.cwd(), 'data', 'songs_metadata.json');
+
+async function downloadYouTubeSong(url: string): Promise<{ success: boolean; title?: string; error?: string }> {
+  return new Promise(async (resolve) => {
+    try {
+      await fs.mkdir(SONGS_DIR, { recursive: true });
+
+      const videoInfo = await ytDlpWrap.getVideoInfo(url);
+      const title = videoInfo.title || 'Unknown';
+      const safeTitle = title.replace(/[^a-zA-Z0-9\s\-_]/g, '').substring(0, 50);
+      const uniqueId = crypto.randomBytes(4).toString('hex');
+      const filename = `${uniqueId}_${safeTitle.replace(/\s+/g, '_')}.mp3`;
+      const outputPath = path.join(SONGS_DIR, filename);
+
+      const ytDlpEmitter = ytDlpWrap.exec([
+        url,
+        '-x',
+        '--audio-format', 'mp3',
+        '--audio-quality', '0',
+        '--embed-thumbnail',
+        '--add-metadata',
+        '-o', outputPath.replace('.mp3', '.%(ext)s')
+      ]);
+
+      ytDlpEmitter.on('error', (error: Error) => {
+        resolve({ success: false, error: error.message });
+      });
+
+      ytDlpEmitter.on('close', async () => {
+        try {
+          const files = await fs.readdir(SONGS_DIR);
+          const downloadedFile = files.find(f => f.startsWith(uniqueId) && f.endsWith('.mp3'));
+          
+          if (!downloadedFile) {
+            resolve({ success: false, error: 'File not found after download' });
+            return;
+          }
+
+          const filePath = path.join(SONGS_DIR, downloadedFile);
+          const stats = await fs.stat(filePath);
+
+          let metadata: any[] = [];
+          try {
+            const data = await fs.readFile(SONGS_METADATA_PATH, 'utf8');
+            metadata = JSON.parse(data);
+            if (!Array.isArray(metadata)) metadata = [];
+          } catch {}
+
+          metadata.push({
+            id: crypto.randomUUID(),
+            filename: downloadedFile,
+            originalName: `${title}.mp3`,
+            size: stats.size,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: 'youtube_download'
+          });
+
+          await fs.writeFile(SONGS_METADATA_PATH, JSON.stringify(metadata, null, 2));
+          resolve({ success: true, title });
+        } catch (err: any) {
+          resolve({ success: false, error: err.message });
+        }
+      });
+    } catch (error: any) {
+      resolve({ success: false, error: error.message });
+    }
+  });
+}
 
 // WebSocket connection to bot.js
 let botWsConnection: WebSocket | null = null;
@@ -1209,9 +1283,26 @@ async function handleChatCommand(message: string, uid: string, name: string) {
     typeWord = false;
   }
   
+  // /download <url> - Download YouTube song
+  else if (msg.startsWith('/download ')) {
+    const url = msg.substring(10).trim();
+    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+      sendMessage('❌ Please provide a valid YouTube URL');
+      return;
+    }
+    sendMessage('🎵 Starting download...');
+    downloadYouTubeSong(url).then(result => {
+      if (result.success) {
+        sendMessage(`✅ Downloaded: ${result.title}`);
+      } else {
+        sendMessage(`❌ Download failed: ${result.error}`);
+      }
+    });
+  }
+
   // /help - Show commands
   else if (msg === '/help') {
-    sendMessage('🤖 Commands: /mic /lm /say /spam /whois /kick /cn /iv /joinMic /rejoin /stats /members /guess /type /help');
+    sendMessage('🤖 Commands: /mic /lm /say /spam /whois /kick /cn /iv /joinMic /rejoin /stats /members /guess /type /download /help');
   }
 }
 
@@ -2078,13 +2169,14 @@ export function setupBotIntegration(app: Express) {
   app.get('/api/jack/stream-songs', async (req, res) => {
     try {
       const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
-      let songsMetadata = { songs: [] as any[] };
+      let songs: any[] = [];
       try {
         const data = await fs.readFile(songsMetadataPath, 'utf8');
-        songsMetadata = JSON.parse(data);
+        const parsed = JSON.parse(data);
+        songs = Array.isArray(parsed) ? parsed : (parsed.songs || []);
       } catch (err) {}
       
-      res.json({ success: true, data: songsMetadata.songs });
+      res.json({ success: true, data: songs });
     } catch (error) {
       res.json({ success: false, message: 'Failed to load songs' });
     }
