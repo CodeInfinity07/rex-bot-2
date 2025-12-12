@@ -192,6 +192,7 @@ let inClub = false;
 let authRequired = false;
 let authSocket = null;
 let authMessage = null;
+let wsIntervals = []; // Track all WebSocket-related intervals for cleanup
 let club_code = process.env.CLUB_CODE;
 let club_name = process.env.CLUB_NAME;
 let my_uid = process.env.BOT_UID;
@@ -2517,8 +2518,16 @@ app.post('/api/jack/regenerate-token', async (req, res) => {
     try {
         logger.info('🔄 Token regeneration requested - reconnecting WebSocket');
 
+        // Clear all WebSocket-related intervals
+        if (wsIntervals.length > 0) {
+            logger.info(`🧹 Clearing ${wsIntervals.length} WebSocket intervals`);
+            wsIntervals.forEach(interval => clearInterval(interval));
+            wsIntervals = [];
+        }
+
         authRequired = false;
         authMessage = null;
+        inClub = false;
 
         if (botState.ws) {
             botState.ws.close();
@@ -3487,6 +3496,13 @@ async function connectWebSocket() {
             ws.on('open', async () => {
                 logger.info('🔌 WebSocket connection opened');
 
+                // Clear any existing intervals before creating new ones
+                if (wsIntervals.length > 0) {
+                    logger.info(`🧹 Clearing ${wsIntervals.length} old WebSocket intervals`);
+                    wsIntervals.forEach(interval => clearInterval(interval));
+                    wsIntervals = [];
+                }
+
                 // Queue processors
                 const removalQueueProcessor = setInterval(() => {
                     if (pendingRemovals.length > 0) {
@@ -3498,6 +3514,7 @@ async function connectWebSocket() {
                         pendingRemovals = [];
                     }
                 }, 2000);
+                wsIntervals.push(removalQueueProcessor);
 
                 let isProcessingBans = false;
                 let previousBanQueueLength = 0;
@@ -3529,6 +3546,7 @@ async function connectWebSocket() {
                         }
                     }
                 }, 300);
+                wsIntervals.push(banQueueProcessor);
 
                 let isProcessingKicks = false;
                 let previousKickQueueLength = 0;
@@ -3560,6 +3578,7 @@ async function connectWebSocket() {
                         }
                     }
                 }, 300);
+                wsIntervals.push(kickQueueProcessor);
 
                 await loadSavedData(path_users);
                 await loadMembersData();
@@ -3621,9 +3640,10 @@ async function connectWebSocket() {
 
                         joinClub(club_code);
 
-                        setInterval(() => {
+                        const refreshInterval = setInterval(() => {
                             refresh();
                         }, 25000);
+                        wsIntervals.push(refreshInterval);
 
                         // setTimeout(() => {
                         //     setInterval(() => {
