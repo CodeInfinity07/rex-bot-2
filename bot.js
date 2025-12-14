@@ -4543,6 +4543,26 @@ async function connectWebSocket() {
 
                 botState.connected = false;
                 botState.ws = null;
+
+                // Clear all WebSocket-related intervals
+                if (wsIntervals.length > 0) {
+                    logger.info(`🧹 Clearing ${wsIntervals.length} WebSocket intervals on disconnect`);
+                    wsIntervals.forEach(interval => clearInterval(interval));
+                    wsIntervals = [];
+                }
+
+                // Auto-reconnect after 5 seconds
+                logger.info('🔄 Attempting to reconnect in 5 seconds...');
+                setTimeout(async () => {
+                    try {
+                        logger.info('🔌 Reconnecting WebSocket...');
+                        await connectWebSocket();
+                        logger.info('✅ WebSocket reconnected successfully');
+                    } catch (err) {
+                        logger.error('❌ Failed to reconnect WebSocket:', err.message);
+                        // Will try again on next close event or manual intervention
+                    }
+                }, 5000);
             });
 
             // Bot functions
