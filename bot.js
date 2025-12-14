@@ -1385,6 +1385,28 @@ async function loadSettings() {
 // API ENDPOINTS
 // ====================
 
+// ==================== WINDOWS APP ENDPOINTS ====================
+
+// Get token.txt content for Windows app
+app.get('/api/jack/get-token', async (req, res) => {
+    try {
+        const tokenPath = path.join(__dirname, 'token.txt');
+        const tokenContent = await fs.readFile(tokenPath, 'utf8');
+        res.json({ success: true, token: tokenContent.trim() });
+    } catch (error) {
+        res.json({ success: false, message: 'Token file not found' });
+    }
+});
+
+// Get authMessage for Windows app
+app.get('/api/jack/get-auth-message', (req, res) => {
+    if (authMessage) {
+        res.json({ success: true, authMessage: authMessage });
+    } else {
+        res.json({ success: false, message: 'Auth message not available yet' });
+    }
+});
+
 // ==================== AUTH ENDPOINTS ====================
 
 // Login endpoint
