@@ -3806,7 +3806,7 @@ async function connectWebSocket() {
                         }
 
                         if (jsonMessage?.PU === "CJA" || jsonMessage?.PU === "REA") {
-                            if(jsonMessage.PU === "CJA"){
+                            if (jsonMessage?.PU === "CJA"){
                                 onMic = false;
                             }
                             const agora_channel = jsonMessage.PY.VC.VCH;
@@ -3888,7 +3888,10 @@ async function connectWebSocket() {
 
                         else if (jsonMessage.RH === "CBC" && jsonMessage.PU === "TMS") {
                             const target_uid = jsonMessage.PY.UID;
-                            if (target_uid === my_uid && jsonMessage.PY.IN !== undefined) {
+                            if(jsonMessage.PY.FC) {
+                                onMic = false;
+                            }
+                            else if (target_uid === my_uid && jsonMessage.PY.IN !== undefined) {
                                 botMic = Number(jsonMessage.PY.IN);
                                 onMic = true;
                                 logger.info(`🎤 Bot joined mic #${botMic}`);
