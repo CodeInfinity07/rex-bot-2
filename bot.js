@@ -3806,6 +3806,9 @@ async function connectWebSocket() {
                         }
 
                         if (jsonMessage?.PU === "CJA" || jsonMessage?.PU === "REA") {
+                            if(jsonMessage.PU === "CJA"){
+                                onMic = false;
+                            }
                             const agora_channel = jsonMessage.PY.VC.VCH;
                             const agora_token = jsonMessage.PY.VC.AT;
                             
