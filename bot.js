@@ -3885,7 +3885,7 @@ async function connectWebSocket() {
 
                         else if (jsonMessage.RH === "CBC" && jsonMessage.PU === "TMS") {
                             const target_uid = jsonMessage.PY.UID;
-                            if (target_uid === my_uid) {
+                            if (target_uid === my_uid && jsonMessage.PY.IN !== undefined) {
                                 botMic = Number(jsonMessage.PY.IN);
                                 onMic = true;
                                 logger.info(`🎤 Bot joined mic #${botMic}`);
