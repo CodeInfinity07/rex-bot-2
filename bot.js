@@ -2537,6 +2537,47 @@ app.post('/api/jack/restart', async (req, res) => {
     }
 });
 
+app.post('/api/jack/update-token', async (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            return res.json({
+                success: false,
+                message: 'Token is required'
+            });
+        }
+
+        logger.info('🔄 Token update requested');
+
+        // Write new token to token.txt
+        await fs.writeFile('token.txt', token, 'utf8');
+        logger.info('✅ token.txt updated');
+
+        // Remove EP and KEY from environment
+        delete process.env.EP;
+        delete process.env.KEY;
+        bot_ep = undefined;
+        bot_key = undefined;
+        logger.info('🗑️ EP and KEY removed from environment');
+
+        res.json({
+            success: true,
+            message: 'Token updated, EP and KEY removed. Restarting...'
+        });
+
+        // Restart the process after response is sent
+        setTimeout(() => {
+            logger.info('🔄 Executing process.exit(0) for PM2 restart');
+            process.exit(0);
+        }, 1000);
+
+    } catch (error) {
+        logger.error('❌ Error updating token:', error.message);
+        res.json({ success: false, message: error.message });
+    }
+});
+
 app.post('/api/jack/regenerate-token', async (req, res) => {
     try {
         logger.info('🔄 Token regeneration requested - reconnecting WebSocket');
