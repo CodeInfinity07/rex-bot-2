@@ -2554,7 +2554,22 @@ app.post('/api/jack/update-token', async (req, res) => {
         await fs.writeFile('token.txt', token, 'utf8');
         logger.info('✅ token.txt updated');
 
-        // Remove EP and KEY from environment
+        // Remove EP and KEY from .env file
+        try {
+            const envPath = '.env';
+            const envContent = await fs.readFile(envPath, 'utf8');
+            const lines = envContent.split('\n');
+            const filteredLines = lines.filter(line => {
+                const trimmed = line.trim();
+                return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
+            });
+            await fs.writeFile(envPath, filteredLines.join('\n'), 'utf8');
+            logger.info('✅ EP and KEY removed from .env file');
+        } catch (envError) {
+            logger.warn('⚠️ Could not update .env file:', envError.message);
+        }
+
+        // Remove EP and KEY from runtime environment
         delete process.env.EP;
         delete process.env.KEY;
         bot_ep = undefined;
@@ -2563,7 +2578,7 @@ app.post('/api/jack/update-token', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Token updated, EP and KEY removed. Restarting...'
+            message: 'Token updated, EP and KEY removed from .env. Restarting...'
         });
 
         // Restart the process after response is sent
