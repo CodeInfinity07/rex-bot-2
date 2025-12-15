@@ -1881,51 +1881,6 @@ app.post('/api/jack/clear-credentials', async (req, res) => {
     }
 });
 
-app.post('/api/jack/update-token', async (req, res) => {
-    try {
-        const { tokenContent } = req.body;
-
-        if (!tokenContent || typeof tokenContent !== 'string') {
-            return res.json({
-                success: false,
-                message: 'Token content is required'
-            });
-        }
-
-        try {
-            const decoded = Buffer.from(tokenContent.trim(), 'base64').toString('utf-8');
-            const outer = JSON.parse(decoded);
-            const pyData = JSON.parse(outer.PY);
-
-            if (!pyData.EP || !pyData.KEY) {
-                throw new Error('Invalid token format - missing EP or KEY');
-            }
-        } catch (err) {
-            return res.json({
-                success: false,
-                message: 'Invalid token format. Please ensure it contains valid base64 encoded data with EP and KEY.'
-            });
-        }
-
-        const tokenPath = path.resolve('token.txt');
-        await fs.writeFile(tokenPath, tokenContent.trim(), 'utf-8');
-
-        logger.info('✅ token.txt updated successfully');
-
-        res.json({
-            success: true,
-            message: 'Token file updated successfully. Please restart the bot to apply changes.'
-        });
-
-    } catch (error) {
-        logger.error('❌ Error updating token.txt:', error.message);
-        res.json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
 app.post('/api/jack/authenticate', async (req, res) => {
     try {
         const { authData } = req.body;
