@@ -2121,6 +2121,14 @@ async function connectWebSocket() {
 
                     console.log(`${new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi' })}:`, jsonMessage);
 
+                    // Heartbeat handler - ping the socket back
+                    if (jsonMessage?.RH === 'hb') {
+                        const pong = JSON.stringify({ RH: 'hb', PU: '', PY: {} });
+                        const base64Pong = Buffer.from(pong, 'utf8').toString('base64');
+                        ws.send(base64Pong);
+                        return;
+                    }
+
                     // Authentication handling
                     if (jsonMessage?.PY?.hasOwnProperty('IA')) {
                         console.log('\n🔐 Authentication Required');
