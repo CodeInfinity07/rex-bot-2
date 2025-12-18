@@ -173,44 +173,50 @@ const conversationHistory = new Map();
         try {
             await fs.access(tokenPath);
             const base64data = (await fs.readFile(tokenPath, 'utf-8')).trim();
-            const decoded = Buffer.from(base64data, 'base64').toString('utf-8');
-            const outer = JSON.parse(decoded);
-            const pyData = JSON.parse(outer.PY);
+            
+            // Check if token.txt is empty
+            if (!base64data) {
+                console.warn('⚠️ token.txt is empty. Bot will continue without EP/KEY - waiting for authentication.');
+            } else {
+                const decoded = Buffer.from(base64data, 'base64').toString('utf-8');
+                const outer = JSON.parse(decoded);
+                const pyData = JSON.parse(outer.PY);
 
-            bot_ep = pyData.EP;
-            bot_key = pyData.KEY;
+                bot_ep = pyData.EP;
+                bot_key = pyData.KEY;
 
-            const envPath = path.resolve('.env');
-            let envContent = '';
-            try {
-                envContent = await fs.readFile(envPath, 'utf-8');
-            } catch {
-                // .env might not exist
+                const envPath = path.resolve('.env');
+                let envContent = '';
+                try {
+                    envContent = await fs.readFile(envPath, 'utf-8');
+                } catch {
+                    // .env might not exist
+                }
+
+                const newLines = [];
+                if (!envContent.includes('EP=')) newLines.push(`EP=${bot_ep}`);
+                if (!envContent.includes('KEY=')) newLines.push(`KEY=${bot_key}`);
+
+                if (newLines.length > 0) {
+                    await fs.appendFile(envPath, '\n' + newLines.join('\n'));
+                    console.log('✅ Added EP and KEY to .env');
+                }
+
+                process.env.EP = bot_ep;
+                process.env.KEY = bot_key;
             }
-
-            const newLines = [];
-            if (!envContent.includes('EP=')) newLines.push(`EP=${bot_ep}`);
-            if (!envContent.includes('KEY=')) newLines.push(`KEY=${bot_key}`);
-
-            if (newLines.length > 0) {
-                await fs.appendFile(envPath, '\n' + newLines.join('\n'));
-                console.log('✅ Added EP and KEY to .env');
-            }
-
-            process.env.EP = bot_ep;
-            process.env.KEY = bot_key;
 
         } catch (err) {
-            console.error('❌ Failed to decode token.txt or update env:', err);
-            process.exit(1);
+            console.warn('⚠️ Failed to decode token.txt:', err.message);
+            console.warn('⚠️ Bot will continue without EP/KEY - waiting for authentication or token update.');
         }
     }
 
     console.log('Club Code:', club_code);
     console.log('Club Name:', club_name);
     console.log('BOT UID:', my_uid);
-    console.log('Endpoint:', bot_ep);
-    console.log('Key:', bot_key);
+    console.log('Endpoint:', bot_ep || 'Not set');
+    console.log('Key:', bot_key || 'Not set');
     console.log('Port:', PORT);
 })();
 
