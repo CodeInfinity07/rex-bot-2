@@ -3816,7 +3816,7 @@ async function connectWebSocket() {
 
                     // Heartbeat handler - ping the socket back
                     if (jsonMessage?.RH === 'hb') {
-                        const pong = JSON.stringify({ RH: 'hb', PU: '', PY: {} });
+                        const pong = JSON.stringify({ RH: 'ha', PU: '', PY: {} });
                         const base64Pong = Buffer.from(pong, 'utf8').toString('base64');
                         ws.send(base64Pong);
                         return;
