@@ -2475,7 +2475,7 @@ app.get('/api/jack/settings', async (req, res) => {
 
 app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
     try {
-        const { code } = req.body;
+        const code = req.body?.code;
 
         if (!code) {
             return res.json({
