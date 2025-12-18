@@ -3878,7 +3878,10 @@ async function connectWebSocket() {
                         }
 
                         if (jsonMessage.PY?.CUP) {
-                            if (Number(jsonMessage.PY.CUP.PD.L) < botConfig.settings.banLevel) {
+                            const userGC = findPlayerID(jsonMessage.PY.UID);
+                            const isExemptFromLevel = userGC && botConfig.exemptions?.includes(userGC);
+                            
+                            if (!isExemptFromLevel && Number(jsonMessage.PY.CUP.PD.L) < botConfig.settings.banLevel) {
                                 applyPunishment(jsonMessage.PY.UID, 'lowLevel');
                             }
                         }
