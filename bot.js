@@ -192,6 +192,7 @@ let inClub = false;
 let authRequired = false;
 let authSocket = null;
 let authMessage = null;
+let pendingVCRequest = null; // Pending VC credential fetch request
 let wsIntervals = []; // Track all WebSocket-related intervals for cleanup
 let club_code = process.env.CLUB_CODE;
 let club_name = process.env.CLUB_NAME;
@@ -2472,6 +2473,159 @@ app.get('/api/jack/settings', async (req, res) => {
     }
 });
 
+app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
+    try {
+        const { code } = req.body;
+
+        if (!code) {
+            return res.json({
+                success: false,
+                message: 'Club code is required'
+            });
+        }
+
+        if (!botState.ws || !botState.connected) {
+            return res.json({
+                success: false,
+                message: 'Bot is not connected'
+            });
+        }
+
+        logger.info(`🔄 Fetching VC credentials for club: ${code}`);
+
+        // Create a promise that will be resolved when CJA is received
+        const vcPromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingVCRequest = null;
+                reject(new Error('Timeout waiting for VC credentials'));
+            }, 15000); // 15 second timeout
+
+            pendingVCRequest = {
+                resolve: (credentials) => {
+                    clearTimeout(timeout);
+                    pendingVCRequest = null;
+                    resolve(credentials);
+                },
+                reject: (error) => {
+                    clearTimeout(timeout);
+                    pendingVCRequest = null;
+                    reject(error);
+                },
+                targetClub: code
+            };
+        });
+
+        // Exit current club
+        botState.ws.send(Buffer.from(JSON.stringify({
+            RH: "CBC",
+            PU: "LC",
+            PY: JSON.stringify({
+                IDX: "1",
+                TY: 0
+            })
+        })).toString('base64'));
+
+        inClub = false;
+
+        // Wait a moment before joining target club
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Join target club
+        botState.ws.send(Buffer.from(JSON.stringify({
+            "RH": "CBC",
+            "PU": "CJ",
+            "PY": JSON.stringify({
+                "IDX": "2",
+                "CID": `${code}`,
+                "PI": {
+                    "GA": false,
+                    "NM": "Bot",
+                    "XP": 0,
+                    "UID": my_uid
+                }
+            }),
+            "SQ": null,
+            "EN": false
+        })).toString('base64'));
+
+        // Wait for CJA response with credentials
+        const credentials = await vcPromise;
+
+        logger.info(`✅ Got VC credentials for club ${code}`);
+
+        // Exit target club and rejoin default club
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        botState.ws.send(Buffer.from(JSON.stringify({
+            RH: "CBC",
+            PU: "LC",
+            PY: JSON.stringify({
+                IDX: "1",
+                TY: 0
+            })
+        })).toString('base64'));
+
+        inClub = false;
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Rejoin default club
+        botState.ws.send(Buffer.from(JSON.stringify({
+            "RH": "CBC",
+            "PU": "CJ",
+            "PY": JSON.stringify({
+                "IDX": "2",
+                "CID": `${club_code}`,
+                "PI": {
+                    "GA": false,
+                    "NM": "Bot",
+                    "XP": 0,
+                    "UID": my_uid
+                }
+            }),
+            "SQ": null,
+            "EN": false
+        })).toString('base64'));
+
+        logger.info(`✅ Rejoined default club ${club_code}`);
+
+        res.json({
+            success: true,
+            message: 'VC credentials fetched successfully',
+            credentials: credentials
+        });
+
+    } catch (error) {
+        logger.error('❌ Error fetching VC credentials:', error.message);
+        
+        // Try to rejoin default club on error
+        try {
+            if (botState.ws && botState.connected) {
+                botState.ws.send(Buffer.from(JSON.stringify({
+                    "RH": "CBC",
+                    "PU": "CJ",
+                    "PY": JSON.stringify({
+                        "IDX": "2",
+                        "CID": `${club_code}`,
+                        "PI": {
+                            "GA": false,
+                            "NM": "Bot",
+                            "XP": 0,
+                            "UID": my_uid
+                        }
+                    }),
+                    "SQ": null,
+                    "EN": false
+                })).toString('base64'));
+            }
+        } catch (e) {
+            logger.error('Failed to rejoin default club:', e.message);
+        }
+
+        res.json({ success: false, message: error.message });
+    }
+});
+
 app.post('/api/jack/restart', async (req, res) => {
     try {
         logger.info('🔄 Bot restart requested from dashboard');
@@ -3822,6 +3976,16 @@ async function connectWebSocket() {
                             }
                             const agora_channel = jsonMessage.PY.VC.VCH;
                             const agora_token = jsonMessage.PY.VC.AT;
+
+                            // If there's a pending VC credential request, resolve it
+                            if (pendingVCRequest && jsonMessage?.PU === "CJA") {
+                                pendingVCRequest.resolve({
+                                    channel: agora_channel,
+                                    token: agora_token,
+                                    appId: agoraCredentials.appId,
+                                    clubName: jsonMessage?.PY?.NM || 'Unknown'
+                                });
+                            }
                             
                             // Save Agora credentials to .env AND update in-memory object
                             if (agora_channel && agora_token) {
