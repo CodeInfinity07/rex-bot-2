@@ -33,6 +33,9 @@ const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_se
 // Bot.js WebSocket URL for receiving stream control events
 const BOT_WS_URL = process.env.BOT_WS_URL || 'wss://wickedrex-143.botpanels.live/ws/stream-control';
 
+// Bot.js API URL for HTTP requests
+const BOT_API_URL = process.env.BOT_API_URL || 'https://wickedrex-143.botpanels.live';
+
 // Stream state for playback control (mirrors bot.js state)
 const streamState = {
   status: 'stopped' as 'playing' | 'paused' | 'stopped',
@@ -2045,6 +2048,39 @@ export function setupBotIntegration(app: Express) {
       }, 1000);
     } catch (error) {
       res.json({ success: false, message: 'Failed to restart' });
+    }
+  });
+
+  // Fetch VC credentials - proxies to external bot.js
+  app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
+    try {
+      const code = req.body?.code;
+
+      if (!code) {
+        return res.json({
+          success: false,
+          message: 'Club code is required'
+        });
+      }
+
+      logger.info(`🔄 Proxying VC credentials request for club: ${code}`);
+
+      const response = await axios.post(`${BOT_API_URL}/api/jack/fetch-vc-credentials`, {
+        code: code
+      }, {
+        timeout: 20000,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      res.json(response.data);
+    } catch (error: any) {
+      logger.error(`❌ Error fetching VC credentials: ${error.message}`);
+      res.json({ 
+        success: false, 
+        message: error.response?.data?.message || error.message || 'Failed to fetch VC credentials'
+      });
     }
   });
 
