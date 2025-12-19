@@ -656,6 +656,24 @@ app.post('/api/jack/update-token', async (req, res) => {
 
         logger.info('🔄 Token update requested');
 
+        // Validate token before saving
+        try {
+            const decoded = Buffer.from(token.trim(), 'base64').toString('utf-8');
+            const outer = JSON.parse(decoded);
+            const pyData = JSON.parse(outer.PY);
+
+            if (!pyData.EP || !pyData.KEY) {
+                throw new Error('Missing EP or KEY');
+            }
+            logger.info('✅ Token validated - contains EP and KEY');
+        } catch (validationErr) {
+            logger.error('❌ Token validation failed:', validationErr.message);
+            return res.json({
+                success: false,
+                message: 'Invalid token format. Token must be valid base64 with EP and KEY.'
+            });
+        }
+
         // Write new token to token.txt
         await fs.writeFile('token.txt', token, 'utf8');
         logger.info('✅ token.txt updated');
