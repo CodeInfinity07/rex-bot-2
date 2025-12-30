@@ -91,15 +91,12 @@ class FileLock {
 
 const membersFileLock = new FileLock();
 
-// Message queue system with priority support
+// Message queue system
 class MessageQueue {
     constructor() {
         this.queue = [];
-        this.priorityQueue = []; // High priority messages (welcomes, etc.)
         this.processing = false;
         this.currentSequence = 2;
-        this.lastPrioritySend = 0;
-        this.priorityDelay = 100; // 100ms delay for priority messages
     }
 
     getNextSequence() {
@@ -110,41 +107,22 @@ class MessageQueue {
         this.currentSequence = 2;
     }
 
-    async enqueue(messagePayload, priority = false) {
+    async enqueue(messagePayload) {
         return new Promise((resolve, reject) => {
-            if (priority) {
-                this.priorityQueue.push({ messagePayload, resolve, reject });
-            } else {
-                this.queue.push({ messagePayload, resolve, reject });
-            }
+            this.queue.push({ messagePayload, resolve, reject });
             this.process();
         });
     }
 
     async process() {
-        if (this.processing) {
-            return;
-        }
-        
-        if (this.queue.length === 0 && this.priorityQueue.length === 0) {
+        if (this.processing || this.queue.length === 0) {
             return;
         }
 
         this.processing = true;
 
-        while (this.queue.length > 0 || this.priorityQueue.length > 0) {
-            // Always process priority queue first
-            let item;
-            let isPriority = false;
-            
-            if (this.priorityQueue.length > 0) {
-                item = this.priorityQueue.shift();
-                isPriority = true;
-            } else {
-                item = this.queue.shift();
-            }
-            
-            const { messagePayload, resolve, reject } = item;
+        while (this.queue.length > 0) {
+            const { messagePayload, resolve, reject } = this.queue.shift();
 
             try {
                 let parsedMessage;
@@ -156,11 +134,7 @@ class MessageQueue {
                 } catch {
                     await this._sendDirectly(messagePayload);
                     resolve();
-                    if (isPriority) {
-                        await new Promise(r => setTimeout(r, this.priorityDelay));
-                    } else {
-                        await new Promise(r => setTimeout(r, 500));
-                    }
+                    await new Promise(r => setTimeout(r, 100));
                     continue;
                 }
 
@@ -175,12 +149,7 @@ class MessageQueue {
                 reject(error);
             }
 
-            // Shorter delay for priority messages
-            if (isPriority) {
-                await new Promise(r => setTimeout(r, this.priorityDelay));
-            } else {
-                await new Promise(r => setTimeout(r, 500));
-            }
+            await new Promise(r => setTimeout(r, 100));
         }
 
         this.processing = false;
@@ -207,10 +176,6 @@ class MessageQueue {
                 reject(error);
             }
         });
-    }
-    
-    getQueueLength() {
-        return { normal: this.queue.length, priority: this.priorityQueue.length };
     }
 }
 
@@ -4036,7 +4001,7 @@ async function connectWebSocket() {
                             }
 
                             if (shouldWelcome) {
-                                sendPriorityMessage(formatWelcomeMessage(NM));
+                                sendMessage(formatWelcomeMessage(NM));
                             }
 
                             if (!savedData[GC]) {
@@ -5229,30 +5194,16 @@ async function connectWebSocket() {
                 inClub = false;
             }
 
-            async function sendWebSocketMessageAsync(message, priority = false) {
+            async function sendWebSocketMessageAsync(message) {
                 try {
-                    await messageQueue.enqueue(message, priority);
+                    await messageQueue.enqueue(message);
                 } catch (error) {
                     throw error;
                 }
             }
 
-            function sendWebSocketMessage(message, priority = false) {
-                return messageQueue.enqueue(message, priority);
-            }
-            
-            // Priority message sender for welcomes and critical messages
-            function sendPriorityMessage(tempMsg) {
-                sendWebSocketMessage(JSON.stringify({
-                    RH: "CBC",
-                    PU: "CM",
-                    PY: JSON.stringify({
-                        CID: `${club_code}`,
-                        MG: `${tempMsg}`
-                    }),
-                    SQ: null,
-                    EN: false
-                }), true); // true = priority
+            function sendWebSocketMessage(message) {
+                return messageQueue.enqueue(message);
             }
 
         } catch (error) {
