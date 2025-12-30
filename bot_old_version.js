@@ -682,13 +682,26 @@ app.post('/api/jack/update-token', async (req, res) => {
         try {
             const envPath = '.env';
             const envContent = await fs.readFile(envPath, 'utf8');
-            const lines = envContent.split('\n');
-            const filteredLines = lines.filter(line => {
-                const trimmed = line.trim();
-                return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
-            });
-            await fs.writeFile(envPath, filteredLines.join('\n'), 'utf8');
-            logger.info('✅ EP and KEY removed from .env file');
+            
+            // Safety check: don't modify if file is empty or too small
+            if (!envContent || envContent.trim().length < 5) {
+                logger.warn('⚠️ .env file appears empty or corrupted, skipping EP/KEY removal');
+            } else {
+                const lines = envContent.split('\n');
+                const filteredLines = lines.filter(line => {
+                    const trimmed = line.trim();
+                    return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
+                });
+                
+                // Only write if we still have content
+                const newContent = filteredLines.join('\n').trim();
+                if (newContent.length > 0) {
+                    await fs.writeFile(envPath, newContent + '\n', 'utf8');
+                    logger.info('✅ EP and KEY removed from .env file');
+                } else {
+                    logger.warn('⚠️ Filtered content would be empty, skipping .env write to prevent data loss');
+                }
+            }
         } catch (envError) {
             logger.warn('⚠️ Could not update .env file:', envError.message);
         }
@@ -867,13 +880,32 @@ app.post('/api/jack/clear-credentials', async (req, res) => {
             });
         }
 
+        // Safety check: don't modify if file is empty or too small
+        if (!envContent || envContent.trim().length < 5) {
+            logger.warn('⚠️ .env file appears empty or corrupted, skipping clear');
+            return res.json({
+                success: false,
+                message: '.env file appears empty or corrupted'
+            });
+        }
+
         const lines = envContent.split('\n');
         const filteredLines = lines.filter(line => {
             const trimmed = line.trim();
             return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
         });
 
-        await fs.writeFile(envPath, filteredLines.join('\n'), 'utf-8');
+        // Only write if we still have content
+        const newContent = filteredLines.join('\n').trim();
+        if (newContent.length > 0) {
+            await fs.writeFile(envPath, newContent + '\n', 'utf-8');
+        } else {
+            logger.warn('⚠️ Filtered content would be empty, skipping .env write to prevent data loss');
+            return res.json({
+                success: false,
+                message: 'Cannot clear - would result in empty .env file'
+            });
+        }
 
         delete process.env.EP;
         delete process.env.KEY;
