@@ -181,6 +181,17 @@ class MessageQueue {
             }
         });
     }
+
+    clearQueue() {
+        const clearedCount = this.queue.length;
+        this.queue.forEach(item => item.reject(new Error('Queue cleared')));
+        this.queue = [];
+        return clearedCount;
+    }
+
+    getQueueLength() {
+        return this.queue.length;
+    }
 }
 
 // Create global message queue instance
@@ -4574,6 +4585,17 @@ async function connectWebSocket() {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     refresh();
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
+                            else if (String(message).startsWith("/cq")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    const clearedCount = messageQueue.clearQueue();
+                                    sendMessage(`Queue cleared. Removed ${clearedCount} pending messages.`);
+                                    logger.info(`🗑️ Admin ${user_id} cleared queue - ${clearedCount} messages removed`);
                                 } else {
                                     sendMessage(`You are not eligible to use this command.`);
                                 }
