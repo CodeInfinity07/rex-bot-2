@@ -3756,6 +3756,7 @@ async function connectWebSocket() {
 
             ws.on('open', async () => {
                 logger.info('🔌 WebSocket connection opened');
+                await logSocketStatus('disconnected', 'Socket opened normally');
 
                 // Clear any existing intervals before creating new ones
                 if (wsIntervals.length > 0) {
