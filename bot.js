@@ -107,9 +107,9 @@ class MessageQueue {
         this.currentSequence = 2;
     }
 
-    async enqueue(messagePayload) {
+    async enqueue(messagePayload, skipDelay = false) {
         return new Promise((resolve, reject) => {
-            this.queue.push({ messagePayload, resolve, reject });
+            this.queue.push({ messagePayload, resolve, reject, skipDelay });
             this.process();
         });
     }
@@ -122,7 +122,7 @@ class MessageQueue {
         this.processing = true;
 
         while (this.queue.length > 0) {
-            const { messagePayload, resolve, reject } = this.queue.shift();
+            const { messagePayload, resolve, reject, skipDelay } = this.queue.shift();
 
             try {
                 let parsedMessage;
@@ -134,7 +134,9 @@ class MessageQueue {
                 } catch {
                     await this._sendDirectly(messagePayload);
                     resolve();
-                    await new Promise(r => setTimeout(r, 100));
+                    if (!skipDelay) {
+                        await new Promise(r => setTimeout(r, 100));
+                    }
                     continue;
                 }
 
@@ -149,7 +151,9 @@ class MessageQueue {
                 reject(error);
             }
 
-            await new Promise(r => setTimeout(r, 100));
+            if (!skipDelay) {
+                await new Promise(r => setTimeout(r, 100));
+            }
         }
 
         this.processing = false;
@@ -3783,11 +3787,8 @@ async function connectWebSocket() {
                         isProcessingBans = false;
 
                         if (pendingBans.length === 0 && previousBanQueueLength > 0) {
-                            logger.info('✅ Ban queue empty - executing refresh()');
-                            setTimeout(() => {
-                                refresh();
-                                botState.stats.usersKicked += previousBanQueueLength;
-                            }, 500);
+                            logger.info('✅ Ban queue empty');
+                            botState.stats.usersKicked += previousBanQueueLength;
                             previousBanQueueLength = 0;
                         }
                     }
@@ -3815,11 +3816,8 @@ async function connectWebSocket() {
                         isProcessingKicks = false;
 
                         if (pendingKicks.length === 0 && previousKickQueueLength > 0) {
-                            logger.info('✅ Kick queue empty - executing refresh()');
-                            setTimeout(() => {
-                                refresh();
-                                botState.stats.usersKicked += previousKickQueueLength;
-                            }, 500);
+                            logger.info('✅ Kick queue empty');
+                            botState.stats.usersKicked += previousKickQueueLength;
                             previousKickQueueLength = 0;
                         }
                     }
@@ -3894,10 +3892,6 @@ async function connectWebSocket() {
 
                         joinClub(club_code);
 
-                        const refreshInterval = setInterval(() => {
-                            refresh();
-                        }, 25000);
-                        wsIntervals.push(refreshInterval);
 
                         // setTimeout(() => {
                         //     setInterval(() => {
@@ -4825,7 +4819,7 @@ async function connectWebSocket() {
                     }),
                     SQ: null,
                     EN: false
-                }));
+                }), true); // skipDelay=true for instant chat messages
             }
 
             function refresh() {
@@ -5194,16 +5188,16 @@ async function connectWebSocket() {
                 inClub = false;
             }
 
-            async function sendWebSocketMessageAsync(message) {
+            async function sendWebSocketMessageAsync(message, skipDelay = false) {
                 try {
-                    await messageQueue.enqueue(message);
+                    await messageQueue.enqueue(message, skipDelay);
                 } catch (error) {
                     throw error;
                 }
             }
 
-            function sendWebSocketMessage(message) {
-                return messageQueue.enqueue(message);
+            function sendWebSocketMessage(message, skipDelay = false) {
+                return messageQueue.enqueue(message, skipDelay);
             }
 
         } catch (error) {
