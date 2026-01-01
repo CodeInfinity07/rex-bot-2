@@ -3904,6 +3904,10 @@ async function connectWebSocket() {
 
                         joinClub(club_code);
 
+                        const refreshInterval = setInterval(() => {
+                            refresh();
+                        }, 25000);
+                        wsIntervals.push(refreshInterval);
 
                         // setTimeout(() => {
                         //     setInterval(() => {
