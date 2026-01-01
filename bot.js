@@ -8,7 +8,6 @@ const path = require('path');
 const os = require('os');
 const { OpenAI } = require('openai');
 const axios = require('axios');
-const { error } = require('winston');
 const mysql = require('mysql2/promise');
 const WebSocket = require('ws');
 const bcrypt = require('bcryptjs');
@@ -16,23 +15,6 @@ const multer = require('multer');
 const { spawn } = require('child_process');
 
 require('dotenv').config();
-
-const readline = require('readline');
-
-// Create readline interface
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
-
-// Helper function to prompt for input
-function promptInput(question) {
-    return new Promise((resolve) => {
-        rl.question(question, (answer) => {
-            resolve(answer.trim());
-        });
-    });
-}
 
 // Simple logger replacement
 const logger = {
@@ -3908,13 +3890,6 @@ async function connectWebSocket() {
                             refresh();
                         }, 25000);
                         wsIntervals.push(refreshInterval);
-
-                        // setTimeout(() => {
-                        //     setInterval(() => {
-                        //         exitclub();
-                        //         joinClub(club_code);
-                        //     }, 3600000);
-                        // }, 5000);
                     }
 
                     if (jsonMessage?.PY?.hasOwnProperty('ML')) {
