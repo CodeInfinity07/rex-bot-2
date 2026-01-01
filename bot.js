@@ -4023,6 +4023,15 @@ async function connectWebSocket() {
                             }
                         }
 
+                        if (jsonMessage.RH === "CBC" && jsonMessage.PU === "KBU") {
+                            if (jsonMessage.PY?.UID === my_uid) {
+                                onMic = false;
+                                streamState.status = 'paused';
+                                streamState.timestamp = Date.now();
+                                logger.info(`🔇 Bot kicked from mic - stream paused`);
+                            }
+                        }
+
                         if (jsonMessage?.PU === "CJA" || jsonMessage?.PU === "REA") {
                             if (jsonMessage?.PU === "CJA"){
                                 onMic = false;
