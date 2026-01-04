@@ -149,7 +149,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           envContent += `\nBOT_UID=${newBotUid}`;
         }
         
-        await fs.writeFile(envPath, envContent.trim() + '\n');
+        // Safety check: don't write if result would be empty
+        const newContent = envContent.trim();
+        if (newContent.length === 0) {
+          console.warn('[BOT] Updated .env content would be empty, aborting write');
+        } else {
+          await fs.writeFile(envPath, newContent + '\n');
+        }
       } catch (envError: any) {
         console.error('Failed to update .env file:', envError.message);
       }
