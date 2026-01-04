@@ -506,7 +506,14 @@ async function updateEnvCredentials(credentials) {
             process.env[key] = value;
         }
         
-        await fs.writeFile(envPath, envContent.trim() + '\n', 'utf-8');
+        // Safety check: don't write if result would be empty
+        const newContent = envContent.trim();
+        if (newContent.length === 0) {
+            logger.warn('⚠️ Updated .env content would be empty, aborting write');
+            return false;
+        }
+        
+        await fs.writeFile(envPath, newContent + '\n', 'utf-8');
         logger.info(`✅ Environment credentials updated: ${Object.keys(credentials).join(', ')}`);
         return true;
     } catch (error) {
@@ -1699,7 +1706,13 @@ app.post('/api/jack/update-bot-uid', async (req, res) => {
                 envContent += `\nBOT_UID=${newBotUid}`;
             }
             
-            await fs.writeFile(envPath, envContent.trim() + '\n');
+            // Safety check: don't write if result would be empty
+            const newContent = envContent.trim();
+            if (newContent.length === 0) {
+                logger.warn('⚠️ Updated .env content would be empty, aborting BOT_UID write');
+            } else {
+                await fs.writeFile(envPath, newContent + '\n');
+            }
             logger.info(`✅ Bot UID updated to: ${newBotUid}`);
         } catch (envError) {
             logger.error('Failed to update .env file:', envError.message);
@@ -1816,7 +1829,17 @@ app.post('/api/jack/update-openai-key', async (req, res) => {
             updatedLines.push(`OPENAI=${apiKey}`);
         }
 
-        await fs.writeFile(envPath, updatedLines.join('\n'), 'utf-8');
+        // Safety check: don't write if result would be empty
+        const newContent = updatedLines.join('\n').trim();
+        if (newContent.length === 0) {
+            logger.warn('⚠️ Updated .env content would be empty, aborting write');
+            return res.json({
+                success: false,
+                message: 'Cannot update - would result in empty .env file'
+            });
+        }
+
+        await fs.writeFile(envPath, newContent + '\n', 'utf-8');
         process.env.OPENAI = apiKey;
 
         const reinitialized = reinitializeOpenAI(apiKey);
