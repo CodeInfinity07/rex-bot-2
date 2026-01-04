@@ -276,9 +276,6 @@ let mics = new Array(10).fill(null);
 let onMic = false;
 let savedData = {};
 let clubAdmins = [];
-let pendingRemovals = [];
-let pendingBans = [];
-let pendingKicks = [];
 
 let openai = new OpenAI({
     apiKey: process.env.OPENAI
@@ -1310,7 +1307,6 @@ app.delete('/api/jack/members/:uid', async (req, res) => {
         await fs.writeFile(MEMBERS_FILE, JSON.stringify(allMembers, null, 2), 'utf8');
 
         logger.info(`🗑️ Member removed: ${memberToRemove.NM} (UID: ${uid})`);
-        pendingRemovals.push(uid);
 
         res.json({
             success: true,
@@ -1382,7 +1378,6 @@ app.post('/api/jack/members/bulk-remove', async (req, res) => {
         const updatedMembers = allMembers.filter(member => !uidsToRemove.includes(member.UID));
         await fs.writeFile(MEMBERS_FILE, JSON.stringify(updatedMembers, null, 2), 'utf8');
 
-        pendingRemovals.push(...uidsToRemove);
         logger.info(`🗑️ Bulk removed ${removeCount} members at level ${level}`);
 
         res.json({
@@ -2157,80 +2152,6 @@ async function connectWebSocket() {
             ws.on('open', async () => {
                 logger.info('🔌 WebSocket connection opened');
 
-                // Queue processors
-                const removalQueueProcessor = setInterval(() => {
-                    if (pendingRemovals.length > 0) {
-                        logger.info(`🔄 Processing ${pendingRemovals.length} pending removals`);
-                        pendingRemovals.forEach(uid => {
-                            removeMember(uid);
-                            logger.info(`✅ Executed removal for UID: ${uid}`);
-                        });
-                        pendingRemovals = [];
-                    }
-                }, 2000);
-
-                let isProcessingBans = false;
-                let previousBanQueueLength = 0;
-
-                const banQueueProcessor = setInterval(async () => {
-                    if (pendingBans.length > 0 && !isProcessingBans) {
-                        isProcessingBans = true;
-                        previousBanQueueLength = pendingBans.length;
-
-                        const batchSize = 5;
-                        const batch = pendingBans.splice(0, batchSize);
-
-                        logger.info(`🔨 Processing ${batch.length} bans (${pendingBans.length} remaining in queue)`);
-
-                        for (const uid of batch) {
-                            executeBan(uid);
-                            await sleep(50);
-                        }
-
-                        isProcessingBans = false;
-
-                        if (pendingBans.length === 0 && previousBanQueueLength > 0) {
-                            logger.info('✅ Ban queue empty - executing refresh()');
-                            setTimeout(() => {
-                                refresh();
-                                botState.stats.usersKicked += previousBanQueueLength;
-                            }, 500);
-                            previousBanQueueLength = 0;
-                        }
-                    }
-                }, 300);
-
-                let isProcessingKicks = false;
-                let previousKickQueueLength = 0;
-
-                const kickQueueProcessor = setInterval(async () => {
-                    if (pendingKicks.length > 0 && !isProcessingKicks) {
-                        isProcessingKicks = true;
-                        previousKickQueueLength = pendingKicks.length;
-
-                        const batchSize = 5;
-                        const batch = pendingKicks.splice(0, batchSize);
-
-                        logger.info(`👢 Processing ${batch.length} kicks (${pendingKicks.length} remaining in queue)`);
-
-                        for (const uid of batch) {
-                            executeKick(uid);
-                            await sleep(50);
-                        }
-
-                        isProcessingKicks = false;
-
-                        if (pendingKicks.length === 0 && previousKickQueueLength > 0) {
-                            logger.info('✅ Kick queue empty - executing refresh()');
-                            setTimeout(() => {
-                                refresh();
-                                botState.stats.usersKicked += previousKickQueueLength;
-                            }, 500);
-                            previousKickQueueLength = 0;
-                        }
-                    }
-                }, 300);
-
                 await loadSavedData(path_users);
                 await loadMembersData();
                 const people = await loadPlayers();
@@ -2315,28 +2236,6 @@ async function connectWebSocket() {
                     botState.stats.messagesProcessed++;
 
                     if (isNotEmptyJson(jsonMessage)) {
-                        // Check banned patterns
-                        if (jsonMessage?.PY?.NM) {
-                            const userName = String(jsonMessage.PY.NM);
-                            const hasBannedPattern = botConfig.bannedPatterns.some(pattern =>
-                                userName.includes(pattern)
-                            );
-
-                            if (hasBannedPattern) {
-                                applyPunishment(jsonMessage.PY.UID, 'bannedPatterns');
-                                botState.stats.usersKicked++;
-                            }
-                        }
-
-                        if (jsonMessage.PY?.CUP) {
-                            const userGC = findPlayerID(jsonMessage.PY.UID);
-                            const isExemptFromLevel = userGC && botConfig.exemptions?.includes(userGC);
-                            
-                            if (!isExemptFromLevel && Number(jsonMessage.PY.CUP.PD.L) < botConfig.settings.banLevel) {
-                                applyPunishment(jsonMessage.PY.UID, 'lowLevel');
-                            }
-                        }
-
                         if (jsonMessage.RH === "CBC" && jsonMessage.PU === "TMS" && jsonMessage?.PY?.hasOwnProperty('ER')) {
                             const failed_mic = jsonMessage.PY.IN;
                             const next_target = Number(failed_mic) + 1;
@@ -2353,42 +2252,8 @@ async function connectWebSocket() {
 
                         if (jsonMessage.PY && jsonMessage.PY.GC && jsonMessage.PY.NM) {
                             const { GC, NM, UID, SNUID, AV } = jsonMessage.PY;
-                            checkLevel(UID);
 
-                            const isExempt = botConfig.exemptions?.includes(GC) || false;
-
-                            let shouldWelcome = true;
-                            let shouldBan = false;
-                            let violationType = 'noGuestId';
-
-                            if (!isExempt) {
-                                if (!botConfig.settings.allowGuestIds && SNUID === undefined) {
-                                    shouldBan = true;
-                                    shouldWelcome = false;
-                                    violationType = 'noGuestId';
-                                } else if (!botConfig.settings.allowAvatars && checkAvatar(AV)) {
-                                    applyPunishment(UID, 'noAvatar');
-                                    shouldWelcome = false;
-                                }
-                            }
-
-                            const hasBannedPattern = botConfig.bannedPatterns.some(pattern =>
-                                String(NM).includes(pattern)
-                            );
-
-                            if (hasBannedPattern) {
-                                shouldBan = true;
-                                shouldWelcome = false;
-                                violationType = 'bannedPatterns';
-                            }
-
-                            if (shouldBan) {
-                                applyPunishment(UID, violationType);
-                            }
-
-                            if (shouldWelcome) {
-                                sendMessage(formatWelcomeMessage(NM));
-                            }
+                            sendMessage(formatWelcomeMessage(NM));
 
                             if (!savedData[GC]) {
                                 try {
@@ -2437,17 +2302,7 @@ async function connectWebSocket() {
                                 });
                             }
 
-                            isProcessingBans = false;
-                            const ulData = jsonMessage?.PY?.OUL;
-                            const c_mics = jsonMessage.PY.MSI;
                             club_name = jsonMessage?.PY?.NM;
-                            let m_index = 1;
-                            c_mics.forEach(mc => {
-                                if (mc.VCU === "" && mc.IL === false) {
-                                    lockMic(m_index);
-                                }
-                                m_index++;
-                            });
 
                             if (jsonMessage?.PY?.SAL && typeof jsonMessage.PY.SAL === 'object') {
                                 clubAdmins = Object.keys(jsonMessage.PY.SAL);
@@ -2455,24 +2310,6 @@ async function connectWebSocket() {
 
                             if (jsonMessage?.PY?.AL && typeof jsonMessage.PY.AL === 'object') {
                                 clubAdmins.push(...Object.keys(jsonMessage.PY.AL));
-                            }
-
-                            if (ulData) {
-                                Object.values(ulData).forEach(user => {
-                                    if (String(user.UID) !== my_uid) {
-                                        const hasBannedPattern = botConfig.bannedPatterns.some(pattern =>
-                                            String(user.NM).includes(pattern)
-                                        );
-
-                                        if (hasBannedPattern) {
-                                            applyPunishment(user.UID, 'bannedPatterns');
-                                            botState.stats.usersKicked++;
-                                        }
-                                        // else {
-                                        //     checkLevel(user.UID);
-                                        // }
-                                    }
-                                });
                             }
                         }
 
@@ -2521,16 +2358,6 @@ async function connectWebSocket() {
                             addMessage(`${user_name}: ${message}`);
 
                             // Bot commands handling
-                            if (String(message).startsWith("/mic")) {
-                                let UID = jsonMessage.PY.UID;
-                                const user_mic_id = findPlayerID(UID);
-                                if (isMemberUID(UID)) {
-                                    inviteMic(UID);
-                                } else if (user_mic_id && botConfig.loyal_members?.includes(user_mic_id)) {
-                                    inviteMic(UID);
-                                }
-                            }
-
                             if (String(message).startsWith("/admins")) {
                                 if (botConfig.admins && botConfig.admins.length > 0) {
                                     botConfig.admins.forEach((admin, index) => {
@@ -2619,37 +2446,6 @@ async function connectWebSocket() {
                                 const player_id = String(message).replace(/^\/whois\s*/, '');
                                 const names = getNames(player_id.toUpperCase());
                                 sendMessage(names);
-                            }
-
-                            else if (String(message).startsWith("/ulm")) {
-                                const user_id = findPlayerID(jsonMessage.PY.UID);
-
-                                try {
-                                    const [command, mic] = String(message).split(" ");
-
-                                    if (!botConfig.admins.includes(user_id)) {
-                                        sendMessage(`You are not eligible to use this command.`);
-                                        return;
-                                    }
-
-                                    if (String(mic).toLowerCase() === "all") {
-                                        for (let i = 1; i <= 10; i++) {
-                                            unlockMic(i);
-                                        }
-                                        sendMessage(`All microphones (1-10) have been unlocked.`);
-                                    } else {
-                                        const micNumber = Number(mic);
-
-                                        if (isNaN(micNumber) || micNumber < 1 || micNumber > 10) {
-                                            sendMessage(`Invalid microphone number. Please specify 1-10 or "all".`);
-                                        } else {
-                                            unlockMic(micNumber);
-                                            sendMessage(`Microphone ${micNumber} has been unlocked.`);
-                                        }
-                                    }
-                                } catch (err) {
-                                    sendMessage("Please use the command in format '/ulm [mic_number]' or '/ulm all'");
-                                }
                             }
 
                             else if (String(message).startsWith("/cn")) {
@@ -2784,30 +2580,6 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/ub")) {
-                                const user_id = findPlayerID(jsonMessage.PY.UID);
-                                if (botConfig.admins.includes(user_id)) {
-                                    const args = String(message).trim().split(/\s+/);
-
-                                    if (args[1] === "all") {
-                                        for (const userId of bannedUserIds) {
-                                            unbanUser(userId);
-                                            await sleep(100);
-                                        }
-                                    } else if (args[1] === "check") {
-                                        checkBannedUsers();
-                                        check_ban_list = true;
-                                    } else if (args[1]) {
-                                        const player_id = String(message).replace(/^\/ub\s*/, '');
-                                        unbanID(player_id.toUpperCase());
-                                    } else {
-                                        sendMessage(`Usage: /ub <userId> | /ub all | /ub check`);
-                                    }
-                                } else {
-                                    sendMessage(`You are not eligible to use this command.`);
-                                }
-                            }
-
                             else if (String(message).startsWith("/joinMic")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
@@ -2817,42 +2589,6 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/lm")) {
-                                const user_id = findPlayerID(jsonMessage.PY.UID);
-
-                                try {
-                                    const [command, mic] = String(message).split(" ");
-
-                                    if (!botConfig.admins.includes(user_id)) {
-                                        sendMessage(`You are not eligible to use this command.`);
-                                        return;
-                                    }
-
-                                    if (String(mic).toLowerCase() === "all") {
-                                        for (let i = 1; i <= 10; i++) {
-                                            lockMic(i);
-                                        }
-                                        sendMessage(`All microphones (1-10) have been locked.`);
-                                    } else {
-                                        const micNumber = Number(mic);
-
-                                        if (isNaN(micNumber) || micNumber < 1 || micNumber > 10) {
-                                            sendMessage(`Invalid microphone number. Please specify 1-10 or "all".`);
-                                        } else {
-                                            lockMic(micNumber);
-                                            sendMessage(`Microphone ${micNumber} has been locked.`);
-                                        }
-                                    }
-                                } catch (err) {
-                                    sendMessage("Please use the command in format '/lm [mic_number]' or '/lm all'");
-                                }
-                            }
-
-                            else if (botConfig.spamWords.some(word => String(message).toLowerCase().includes(word))) {
-                                applyPunishment(UID, 'spamWords');
-                                deleteMsg(jsonMessage.PY.MID);
-                                botState.stats.spamBlocked++;
-                            }
                         }
 
                         else if (jsonMessage.PY && jsonMessage.PY.TY) {
@@ -2917,43 +2653,6 @@ async function connectWebSocket() {
                 }
             }
 
-            function inviteMic(UID) {
-                sendWebSocketMessage(JSON.stringify({
-                    RH: "CBC",
-                    PU: "SMI",
-                    SQ: null,
-                    PY: JSON.stringify({
-                        UID: `${UID}`
-                    })
-                }));
-            }
-
-            function lockMic(num) {
-                sendWebSocketMessage(JSON.stringify({
-                    RH: "CBC",
-                    PU: "TMS",
-                    SQ: null,
-                    PY: JSON.stringify({
-                        LS: true,
-                        LM: true,
-                        MN: num
-                    })
-                }));
-            }
-
-            function unlockMic(num) {
-                sendWebSocketMessage(JSON.stringify({
-                    RH: "CBC",
-                    PU: "TMS",
-                    SQ: null,
-                    PY: JSON.stringify({
-                        LS: false,
-                        LM: true,
-                        MN: num
-                    })
-                }));
-            }
-
             async function clubInvite() {
                 const people = await loadPlayers();
                 const invitePromises = people.map(user =>
@@ -3007,54 +2706,6 @@ async function connectWebSocket() {
                 }
             }
 
-            function checkLevel(UID) {
-                sendWebSocketMessage(JSON.stringify({
-                    "RH": "CBC",
-                    "PU": "GCP",
-                    "PY": JSON.stringify({
-                        "S": false,
-                        "UID": `${UID}`
-                    })
-                }));
-            }
-
-            function banUser(UID) {
-                if (!clubAdmins.includes(String(UID)) && !pendingBans.includes(UID)) {
-                    pendingBans.push(UID);
-                    logger.info(`➕ Added UID to ban queue: ${UID}`);
-                }
-            }
-
-            function executeBan(UID) {
-                if (!clubAdmins.includes(String(UID))) {
-                    sendWebSocketMessage(JSON.stringify({
-                        RH: "CBC",
-                        PU: "KBU",
-                        PY: JSON.stringify({
-                            B: true,
-                            CID: `${club_code}`,
-                            UID: `${UID}`,
-                            R: 3,
-                            OTH: ""
-                        })
-                    }));
-                    logger.info(`🔨 Executed ban for UID: ${UID}`);
-                }
-            }
-
-            function removeMember(uid) {
-                const message = JSON.stringify({
-                    "RH": "CBC",
-                    "PU": "CME",
-                    "PY": JSON.stringify({
-                        "CID": `${club_code}`,
-                        "UID": `${uid}`
-                    })
-                });
-
-                sendWebSocketMessage(message);
-            }
-
             function fetchClubMembers() {
                 sendWebSocketMessage(JSON.stringify({
                     RH: "CBC",
@@ -3063,75 +2714,6 @@ async function connectWebSocket() {
                         "CNT": 800,
                         "CID": `${club_code}`,
                         "PN": 1
-                    })
-                }));
-            }
-
-            function applyPunishment(UID, violationType) {
-                const punishmentType = botConfig.settings?.punishments?.[violationType] || 'ban';
-
-                if (punishmentType === 'kick') {
-                    kickUser(UID);
-                    logger.info(`👢 Kicking user ${UID} for: ${violationType}`);
-                } else {
-                    banUser(UID);
-                    logger.info(`🔨 Banning user ${UID} for: ${violationType}`);
-                }
-            }
-
-            function unbanID(GC) {
-                if (!savedData[GC]) {
-                    return `No data found for GC: ${GC}`;
-                }
-                unbanUser(savedData[GC].UID);
-            }
-
-            function unbanUser(UID) {
-                if (!clubAdmins.includes(String(UID))) {
-                    sendWebSocketMessage(JSON.stringify({
-                        "RH": "CBC",
-                        "PU": "UU",
-                        "SQ": null,
-                        "PY": JSON.stringify({
-                            "CID": `${club_code}`,
-                            "UID": `${UID}`
-                        })
-                    }));
-                }
-            }
-
-            function kickUser(UID) {
-                if (!clubAdmins.includes(String(UID)) && !pendingKicks.includes(UID)) {
-                    pendingKicks.push(UID);
-                    logger.info(`➕ Added UID to kick queue: ${UID}`);
-                }
-            }
-
-            function executeKick(UID) {
-                if (!clubAdmins.includes(String(UID))) {
-                    sendWebSocketMessage(JSON.stringify({
-                        RH: "CBC",
-                        PU: "KBU",
-                        PY: JSON.stringify({
-                            B: false,
-                            CID: `${club_code}`,
-                            UID: `${UID}`,
-                            R: 3,
-                            OTH: ""
-                        })
-                    }));
-                    logger.info(`👢 Executed kick for UID: ${UID}`);
-                }
-            }
-
-            function deleteMsg(MID) {
-                sendWebSocketMessage(JSON.stringify({
-                    RH: "CBC",
-                    PU: "DCM",
-                    SQ: null,
-                    PY: JSON.stringify({
-                        MID: MID,
-                        MTXT: "."
                     })
                 }));
             }
