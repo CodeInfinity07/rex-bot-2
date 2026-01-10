@@ -1530,7 +1530,7 @@ app.post('/api/jack/restart', async (req, res) => {
 
 app.post('/api/jack/settings', async (req, res) => {
     try {
-        const { allowAvatars, banLevel, allowGuestIds, punishments } = req.body;
+        const { allowAvatars, banLevel, allowGuestIds, enableLevelBan, punishments } = req.body;
 
         if (typeof allowAvatars !== 'boolean' ||
             typeof allowGuestIds !== 'boolean' ||
@@ -1554,6 +1554,7 @@ app.post('/api/jack/settings', async (req, res) => {
             allowAvatars,
             banLevel,
             allowGuestIds,
+            enableLevelBan: enableLevelBan ?? true,
             punishments: punishments || {
                 bannedPatterns: 'ban',
                 lowLevel: 'ban',
@@ -1567,7 +1568,7 @@ app.post('/api/jack/settings', async (req, res) => {
         await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
         botConfig.settings = settings;
 
-        logger.info(`Settings updated: Avatars: ${allowAvatars}, Ban Level: ${banLevel}, Guest IDs: ${allowGuestIds}`);
+        logger.info(`Settings updated: Avatars: ${allowAvatars}, Ban Level: ${banLevel}, Guest IDs: ${allowGuestIds}, Level Ban: ${enableLevelBan ?? true}`);
         logger.info(`Punishments: ${JSON.stringify(settings.punishments)}`);
 
         res.json({
