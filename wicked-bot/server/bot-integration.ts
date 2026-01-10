@@ -1745,7 +1745,7 @@ export function setupBotIntegration(app: Express) {
   // Save settings (with activity logging)
   app.post('/api/jack/settings', authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { allowAvatars, banLevel, allowGuestIds, punishments } = req.body;
+      const { allowAvatars, banLevel, allowGuestIds, enableLevelBan, punishments } = req.body;
 
       if (typeof allowAvatars !== 'boolean' ||
           typeof allowGuestIds !== 'boolean' ||
@@ -1761,6 +1761,7 @@ export function setupBotIntegration(app: Express) {
         allowAvatars,
         banLevel,
         allowGuestIds,
+        enableLevelBan: enableLevelBan ?? true,
         updatedAt: new Date().toISOString()
       };
 
@@ -1768,13 +1769,15 @@ export function setupBotIntegration(app: Express) {
       const clubSettingsChanged = 
         currentSettings.allowAvatars !== allowAvatars ||
         currentSettings.banLevel !== banLevel ||
-        currentSettings.allowGuestIds !== allowGuestIds;
+        currentSettings.allowGuestIds !== allowGuestIds ||
+        currentSettings.enableLevelBan !== enableLevelBan;
 
       if (clubSettingsChanged && req.user) {
         await logActivity(req.user.userId, req.user.role, 'UPDATE_CLUB_SETTINGS', {
           allowAvatars,
           banLevel,
-          allowGuestIds
+          allowGuestIds,
+          enableLevelBan: enableLevelBan ?? true
         });
       }
 

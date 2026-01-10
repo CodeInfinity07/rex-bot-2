@@ -15,6 +15,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 const settingsSchema = z.object({
   allowAvatars: z.boolean(),
   allowGuestIds: z.boolean(),
+  enableLevelBan: z.boolean(),
   banLevel: z.coerce.number().min(1).max(100),
   punishments: z.object({
     bannedPatterns: z.enum(['ban', 'kick']),
@@ -47,6 +48,7 @@ export default function Settings() {
     defaultValues: {
       allowAvatars: data?.data.allowAvatars ?? true,
       allowGuestIds: data?.data.allowGuestIds ?? false,
+      enableLevelBan: data?.data.enableLevelBan ?? true,
       banLevel: data?.data.banLevel ?? 10,
       punishments: {
         bannedPatterns: data?.data.punishments?.bannedPatterns ?? 'ban',
@@ -59,6 +61,7 @@ export default function Settings() {
     values: data?.data ? {
       allowAvatars: data.data.allowAvatars,
       allowGuestIds: data.data.allowGuestIds,
+      enableLevelBan: data.data.enableLevelBan ?? true,
       banLevel: data.data.banLevel,
       punishments: {
         bannedPatterns: data.data.punishments?.bannedPatterns ?? 'ban',
@@ -187,6 +190,28 @@ export default function Settings() {
 
               <FormField
                 control={form.control}
+                name="enableLevelBan"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="checkbox-enable-level-ban"
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>Enable Level-Based Banning</FormLabel>
+                      <FormDescription>
+                        Automatically punish users below the level threshold
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="banLevel"
                 render={({ field }) => (
                   <FormItem>
@@ -202,7 +227,7 @@ export default function Settings() {
                       />
                     </FormControl>
                     <FormDescription>
-                      Members below this level will be automatically punished
+                      Members below this level will be automatically punished (when level banning is enabled)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
