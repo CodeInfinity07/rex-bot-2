@@ -1355,6 +1355,8 @@ async function createDefaultSettings() {
         allowAvatars: true,
         banLevel: 10,
         allowGuestIds: false,
+        enableLevelBan: true,
+        micCount: 10,
         punishments: {
             bannedPatterns: 'ban',
             lowLevel: 'ban',
@@ -2828,7 +2830,7 @@ app.post('/api/jack/regenerate-token', async (req, res) => {
 
 app.post('/api/jack/settings', async (req, res) => {
     try {
-        const { allowAvatars, banLevel, allowGuestIds, punishments } = req.body;
+        const { allowAvatars, banLevel, allowGuestIds, enableLevelBan, micCount, punishments } = req.body;
 
         if (typeof allowAvatars !== 'boolean' ||
             typeof allowGuestIds !== 'boolean' ||
@@ -2848,10 +2850,15 @@ app.post('/api/jack/settings', async (req, res) => {
             }
         }
 
+        // Validate micCount
+        const validMicCount = (typeof micCount === 'number' && micCount >= 1 && micCount <= 20) ? micCount : 10;
+
         const settings = {
             allowAvatars,
             banLevel,
             allowGuestIds,
+            enableLevelBan: enableLevelBan ?? true,
+            micCount: validMicCount,
             punishments: punishments || {
                 bannedPatterns: 'ban',
                 lowLevel: 'ban',
@@ -2865,7 +2872,10 @@ app.post('/api/jack/settings', async (req, res) => {
         await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
         botConfig.settings = settings;
 
-        logger.info(`Settings updated: Avatars: ${allowAvatars}, Ban Level: ${banLevel}, Guest IDs: ${allowGuestIds}`);
+        // Update mics array based on new micCount
+        mics = new Array(validMicCount).fill(null);
+
+        logger.info(`Settings updated: Avatars: ${allowAvatars}, Ban Level: ${banLevel}, Guest IDs: ${allowGuestIds}, Level Ban: ${enableLevelBan ?? true}, Mic Count: ${validMicCount}`);
         logger.info(`Punishments: ${JSON.stringify(settings.punishments)}`);
 
         res.json({
@@ -3374,12 +3384,17 @@ async function loadAllConfigurations() {
         const settings = await loadConfigFromFile('settings');
         if (settings) {
             botConfig.settings = settings;
-            logger.info(`⚙️ Loaded settings: Avatars: ${settings.allowAvatars}, Ban Level: ${settings.banLevel}, Guest IDs: ${settings.allowGuestIds}`);
+            // Update mics array based on micCount from settings
+            const micCount = settings.micCount || 10;
+            mics = new Array(micCount).fill(null);
+            logger.info(`⚙️ Loaded settings: Avatars: ${settings.allowAvatars}, Ban Level: ${settings.banLevel}, Guest IDs: ${settings.allowGuestIds}, Level Ban: ${settings.enableLevelBan ?? true}, Mic Count: ${micCount}`);
         } else {
             botConfig.settings = {
                 allowAvatars: true,
                 banLevel: 10,
                 allowGuestIds: false,
+                enableLevelBan: true,
+                micCount: 10,
                 punishments: {
                     bannedPatterns: 'ban',
                     lowLevel: 'ban',
@@ -3388,6 +3403,7 @@ async function loadAllConfigurations() {
                     spamWords: 'kick'
                 }
             };
+            mics = new Array(10).fill(null);
             logger.warn('⚠️ Using hardcoded settings defaults');
         }
 
@@ -3457,6 +3473,8 @@ async function initializeBot() {
                 allowAvatars: true,
                 banLevel: 10,
                 allowGuestIds: false,
+                enableLevelBan: true,
+                micCount: 10,
                 punishments: {
                     bannedPatterns: 'ban',
                     lowLevel: 'ban',
@@ -3465,6 +3483,7 @@ async function initializeBot() {
                     spamWords: 'kick'
                 }
             };
+            mics = new Array(10).fill(null);
         }
 
         if (!botConfig.botConfiguration) {
