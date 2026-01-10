@@ -1,3 +1,7 @@
+# Root folder data files
+/*.txt
+/*.json
+
 # Environment Variables
 .env
 .env.local
