@@ -728,6 +728,8 @@ async function loadSettings() {
         allowAvatars: true,
         banLevel: 10,
         allowGuestIds: false,
+        enableLevelBan: true,
+        micCount: 10,
         createdAt: new Date().toISOString()
       };
       await fs.writeFile(SETTINGS_FILE, JSON.stringify(defaults, null, 2));
@@ -1745,7 +1747,7 @@ export function setupBotIntegration(app: Express) {
   // Save settings (with activity logging)
   app.post('/api/jack/settings', authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { allowAvatars, banLevel, allowGuestIds, enableLevelBan, punishments } = req.body;
+      const { allowAvatars, banLevel, allowGuestIds, enableLevelBan, micCount, punishments } = req.body;
 
       if (typeof allowAvatars !== 'boolean' ||
           typeof allowGuestIds !== 'boolean' ||
@@ -1753,6 +1755,9 @@ export function setupBotIntegration(app: Express) {
           banLevel < 1 || banLevel > 100) {
         return res.json({ success: false, message: 'Invalid settings data' });
       }
+
+      // Validate micCount
+      const validMicCount = (typeof micCount === 'number' && micCount >= 1 && micCount <= 20) ? micCount : 10;
 
       // Load current settings to compare and preserve existing values
       const currentSettings = await loadSettings();
@@ -1762,6 +1767,7 @@ export function setupBotIntegration(app: Express) {
         banLevel,
         allowGuestIds,
         enableLevelBan: enableLevelBan ?? true,
+        micCount: validMicCount,
         updatedAt: new Date().toISOString()
       };
 
@@ -1770,14 +1776,16 @@ export function setupBotIntegration(app: Express) {
         currentSettings.allowAvatars !== allowAvatars ||
         currentSettings.banLevel !== banLevel ||
         currentSettings.allowGuestIds !== allowGuestIds ||
-        currentSettings.enableLevelBan !== enableLevelBan;
+        currentSettings.enableLevelBan !== enableLevelBan ||
+        currentSettings.micCount !== validMicCount;
 
       if (clubSettingsChanged && req.user) {
         await logActivity(req.user.userId, req.user.role, 'UPDATE_CLUB_SETTINGS', {
           allowAvatars,
           banLevel,
           allowGuestIds,
-          enableLevelBan: enableLevelBan ?? true
+          enableLevelBan: enableLevelBan ?? true,
+          micCount: validMicCount
         });
       }
 

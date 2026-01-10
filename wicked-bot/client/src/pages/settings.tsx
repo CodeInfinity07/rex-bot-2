@@ -17,6 +17,7 @@ const settingsSchema = z.object({
   allowGuestIds: z.boolean(),
   enableLevelBan: z.boolean(),
   banLevel: z.coerce.number().min(1).max(100),
+  micCount: z.coerce.number().min(1).max(20),
   punishments: z.object({
     bannedPatterns: z.enum(['ban', 'kick']),
     lowLevel: z.enum(['ban', 'kick']),
@@ -50,6 +51,7 @@ export default function Settings() {
       allowGuestIds: data?.data.allowGuestIds ?? false,
       enableLevelBan: data?.data.enableLevelBan ?? true,
       banLevel: data?.data.banLevel ?? 10,
+      micCount: data?.data.micCount ?? 10,
       punishments: {
         bannedPatterns: data?.data.punishments?.bannedPatterns ?? 'ban',
         lowLevel: data?.data.punishments?.lowLevel ?? 'ban',
@@ -63,6 +65,7 @@ export default function Settings() {
       allowGuestIds: data.data.allowGuestIds,
       enableLevelBan: data.data.enableLevelBan ?? true,
       banLevel: data.data.banLevel,
+      micCount: data.data.micCount ?? 10,
       punishments: {
         bannedPatterns: data.data.punishments?.bannedPatterns ?? 'ban',
         lowLevel: data.data.punishments?.lowLevel ?? 'ban',
@@ -228,6 +231,30 @@ export default function Settings() {
                     </FormControl>
                     <FormDescription>
                       Members below this level will be automatically punished (when level banning is enabled)
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="micCount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mic Count</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={20}
+                        {...field}
+                        onChange={(e) => field.onChange(parseInt(e.target.value))}
+                        data-testid="input-mic-count"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Number of microphone slots available in the club (1-20)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
