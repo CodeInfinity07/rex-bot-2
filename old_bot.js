@@ -13,6 +13,10 @@ const WebSocket = require('ws');
 
 require('dotenv').config();
 
+// Environment-based settings
+const ENABLE_LEVEL_BAN = process.env.ENABLE_LEVEL_BAN !== 'false';
+const MIC_COUNT = parseInt(process.env.MIC_COUNT, 10) || 10;
+
 const readline = require('readline');
 
 // Create readline interface
@@ -272,7 +276,7 @@ let botConfig = {
 let secretNumber = Math.floor(Math.random() * 100) + 1;
 let botMic = 0;
 let index_idx = 1;
-let mics = new Array(10).fill(null);
+let mics = new Array(MIC_COUNT).fill(null);
 let onMic = false;
 let savedData = {};
 let clubAdmins = [];

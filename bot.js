@@ -16,6 +16,10 @@ const { spawn } = require('child_process');
 
 require('dotenv').config();
 
+// Environment-based settings
+const ENABLE_LEVEL_BAN = process.env.ENABLE_LEVEL_BAN !== 'false';
+const MIC_COUNT = parseInt(process.env.MIC_COUNT, 10) || 10;
+
 // Simple logger replacement
 const logger = {
     info: (message) => console.log(`[INFO] ${message}`),
@@ -728,7 +732,7 @@ let botConfig = {
 let secretNumber = Math.floor(Math.random() * 100) + 1;
 let botMic = 0;
 let index_idx = 1;
-let mics = new Array(10).fill(null);
+let mics = new Array(MIC_COUNT).fill(null);
 let onMic = false;
 let savedData = {};
 let clubAdmins = [];
@@ -3950,7 +3954,7 @@ async function connectWebSocket() {
                             }
                         }
 
-                        if (jsonMessage.PY?.CUP) {
+                        if (jsonMessage.PY?.CUP && ENABLE_LEVEL_BAN) {
                             const userGC = findPlayerID(jsonMessage.PY.UID);
                             const isExemptFromLevel = userGC && botConfig.exemptions?.includes(userGC);
                             
