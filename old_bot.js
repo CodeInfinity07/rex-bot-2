@@ -641,71 +641,6 @@ app.get('/api/jack/get-auth-message', (req, res) => {
     }
 });
 
-app.post('/api/jack/update-token', async (req, res) => {
-    try {
-        const { token } = req.body;
-
-        if (!token) {
-            return res.json({
-                success: false,
-                message: 'Token is required'
-            });
-        }
-
-        // Verify token contains EP and KEY before replacing
-        if (!token.includes('EP') || !token.includes('KEY')) {
-            logger.warn('⚠️ Token update rejected: missing EP or KEY');
-            return res.json({
-                success: false,
-                message: 'Invalid token format: must contain EP and KEY'
-            });
-        }
-
-        logger.info('🔄 Token update requested');
-
-        // Write new token to token.txt
-        await fs.writeFile('token.txt', token, 'utf8');
-        logger.info('✅ token.txt updated');
-
-        // Remove EP and KEY from .env file
-        try {
-            const envPath = '.env';
-            const envContent = await fs.readFile(envPath, 'utf8');
-            const lines = envContent.split('\n');
-            const filteredLines = lines.filter(line => {
-                const trimmed = line.trim();
-                return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
-            });
-            await fs.writeFile(envPath, filteredLines.join('\n'), 'utf8');
-            logger.info('✅ EP and KEY removed from .env file');
-        } catch (envError) {
-            logger.warn('⚠️ Could not update .env file:', envError.message);
-        }
-
-        // Remove EP and KEY from runtime environment
-        delete process.env.EP;
-        delete process.env.KEY;
-        bot_ep = undefined;
-        bot_key = undefined;
-        logger.info('🗑️ EP and KEY removed from environment');
-
-        res.json({
-            success: true,
-            message: 'Token updated, EP and KEY removed from .env. Restarting...'
-        });
-
-        // Restart the process after response is sent
-        setTimeout(() => {
-            logger.info('🔄 Executing process.exit(0) for PM2 restart');
-            process.exit(0);
-        }, 1000);
-
-    } catch (error) {
-        logger.error('❌ Error updating token:', error.message);
-        res.json({ success: false, message: error.message });
-    }
-});
-
 app.get('/api/jack/auth-status', (req, res) => {
     res.json({
         success: true,
@@ -887,7 +822,8 @@ app.post('/api/jack/clear-credentials', async (req, res) => {
 
 app.post('/api/jack/update-token', async (req, res) => {
     try {
-        const { tokenContent } = req.body;
+        // Accept both 'token' and 'tokenContent' for compatibility
+        const tokenContent = req.body.tokenContent || req.body.token;
 
         if (!tokenContent || typeof tokenContent !== 'string') {
             return res.json({
@@ -896,6 +832,7 @@ app.post('/api/jack/update-token', async (req, res) => {
             });
         }
 
+        // Validate token: decode base64, parse JSON, verify EP and KEY exist in PY field
         try {
             const decoded = Buffer.from(tokenContent.trim(), 'base64').toString('utf-8');
             const outer = JSON.parse(decoded);
@@ -905,21 +842,51 @@ app.post('/api/jack/update-token', async (req, res) => {
                 throw new Error('Invalid token format - missing EP or KEY');
             }
         } catch (err) {
+            logger.warn('⚠️ Token update rejected: invalid format or missing EP/KEY');
             return res.json({
                 success: false,
                 message: 'Invalid token format. Please ensure it contains valid base64 encoded data with EP and KEY.'
             });
         }
 
+        logger.info('🔄 Token update requested');
+
         const tokenPath = path.resolve('token.txt');
         await fs.writeFile(tokenPath, tokenContent.trim(), 'utf-8');
-
         logger.info('✅ token.txt updated successfully');
+
+        // Remove EP and KEY from .env file
+        try {
+            const envPath = '.env';
+            const envContent = await fs.readFile(envPath, 'utf8');
+            const lines = envContent.split('\n');
+            const filteredLines = lines.filter(line => {
+                const trimmed = line.trim();
+                return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
+            });
+            await fs.writeFile(envPath, filteredLines.join('\n'), 'utf8');
+            logger.info('✅ EP and KEY removed from .env file');
+        } catch (envError) {
+            logger.warn('⚠️ Could not update .env file:', envError.message);
+        }
+
+        // Remove EP and KEY from runtime environment
+        delete process.env.EP;
+        delete process.env.KEY;
+        bot_ep = undefined;
+        bot_key = undefined;
+        logger.info('🗑️ EP and KEY removed from environment');
 
         res.json({
             success: true,
-            message: 'Token file updated successfully. Please restart the bot to apply changes.'
+            message: 'Token updated, EP and KEY removed from .env. Restarting...'
         });
+
+        // Restart the process after response is sent
+        setTimeout(() => {
+            logger.info('🔄 Executing process.exit(0) for PM2 restart');
+            process.exit(0);
+        }, 1000);
 
     } catch (error) {
         logger.error('❌ Error updating token.txt:', error.message);
