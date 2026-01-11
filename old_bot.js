@@ -652,6 +652,15 @@ app.post('/api/jack/update-token', async (req, res) => {
             });
         }
 
+        // Verify token contains EP and KEY before replacing
+        if (!token.includes('EP') || !token.includes('KEY')) {
+            logger.warn('⚠️ Token update rejected: missing EP or KEY');
+            return res.json({
+                success: false,
+                message: 'Invalid token format: must contain EP and KEY'
+            });
+        }
+
         logger.info('🔄 Token update requested');
 
         // Write new token to token.txt
