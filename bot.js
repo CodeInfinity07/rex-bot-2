@@ -739,6 +739,8 @@ let clubAdmins = [];
 let pendingRemovals = [];
 let pendingBans = [];
 let pendingKicks = [];
+let pendingUnbans = [];
+let pendingLevelChecks = [];
 
 // Session tracking - tracks when users join the club
 const activeSessions = new Map();
@@ -3864,6 +3866,62 @@ async function connectWebSocket() {
                 }, 300);
                 wsIntervals.push(kickQueueProcessor);
 
+                let isProcessingUnbans = false;
+                let previousUnbanQueueLength = 0;
+
+                const unbanQueueProcessor = setInterval(async () => {
+                    if (pendingUnbans.length > 0 && !isProcessingUnbans) {
+                        isProcessingUnbans = true;
+                        previousUnbanQueueLength = pendingUnbans.length;
+
+                        const batchSize = 5;
+                        const batch = pendingUnbans.splice(0, batchSize);
+
+                        logger.info(`🔓 Processing ${batch.length} unbans (${pendingUnbans.length} remaining in queue)`);
+
+                        for (const uid of batch) {
+                            executeUnban(uid);
+                            await sleep(50);
+                        }
+
+                        isProcessingUnbans = false;
+
+                        if (pendingUnbans.length === 0 && previousUnbanQueueLength > 0) {
+                            logger.info('✅ Unban queue empty');
+                            previousUnbanQueueLength = 0;
+                        }
+                    }
+                }, 300);
+                wsIntervals.push(unbanQueueProcessor);
+
+                let isProcessingLevelChecks = false;
+                let previousLevelCheckQueueLength = 0;
+
+                const levelCheckQueueProcessor = setInterval(async () => {
+                    if (pendingLevelChecks.length > 0 && !isProcessingLevelChecks) {
+                        isProcessingLevelChecks = true;
+                        previousLevelCheckQueueLength = pendingLevelChecks.length;
+
+                        const batchSize = 5;
+                        const batch = pendingLevelChecks.splice(0, batchSize);
+
+                        logger.info(`📊 Processing ${batch.length} level checks (${pendingLevelChecks.length} remaining in queue)`);
+
+                        for (const uid of batch) {
+                            executeCheckLevel(uid);
+                            await sleep(50);
+                        }
+
+                        isProcessingLevelChecks = false;
+
+                        if (pendingLevelChecks.length === 0 && previousLevelCheckQueueLength > 0) {
+                            logger.info('✅ Level check queue empty');
+                            previousLevelCheckQueueLength = 0;
+                        }
+                    }
+                }, 300);
+                wsIntervals.push(levelCheckQueueProcessor);
+
                 await loadSavedData(path_users);
                 await loadMembersData();
                 await loadMessageCounter();
@@ -4984,6 +5042,13 @@ async function connectWebSocket() {
             }
 
             function checkLevel(UID) {
+                if (!pendingLevelChecks.includes(UID)) {
+                    pendingLevelChecks.push(UID);
+                    logger.info(`➕ Added UID to level check queue: ${UID}`);
+                }
+            }
+
+            function executeCheckLevel(UID) {
                 sendWebSocketMessage(JSON.stringify({
                     "RH": "CBC",
                     "PU": "GCP",
@@ -4992,6 +5057,7 @@ async function connectWebSocket() {
                         "UID": `${UID}`
                     })
                 }));
+                logger.info(`📊 Executed level check for UID: ${UID}`);
             }
 
             function banUser(UID) {
@@ -5063,6 +5129,13 @@ async function connectWebSocket() {
             }
 
             function unbanUser(UID) {
+                if (!clubAdmins.includes(String(UID)) && !pendingUnbans.includes(UID)) {
+                    pendingUnbans.push(UID);
+                    logger.info(`➕ Added UID to unban queue: ${UID}`);
+                }
+            }
+
+            function executeUnban(UID) {
                 if (!clubAdmins.includes(String(UID))) {
                     sendWebSocketMessage(JSON.stringify({
                         "RH": "CBC",
@@ -5073,6 +5146,7 @@ async function connectWebSocket() {
                             "UID": `${UID}`
                         })
                     }));
+                    logger.info(`🔓 Executed unban for UID: ${UID}`);
                 }
             }
 
