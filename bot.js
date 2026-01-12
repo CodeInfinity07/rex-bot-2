@@ -492,11 +492,22 @@ async function updateEnvCredentials(credentials) {
     try {
         const envPath = path.resolve('.env');
         let envContent = '';
+        let originalLength = 0;
+        let fileExists = false;
         
         try {
             envContent = await fs.readFile(envPath, 'utf-8');
-        } catch {
-            // .env might not exist
+            originalLength = envContent.length;
+            fileExists = true;
+        } catch (readError) {
+            if (readError.code === 'ENOENT') {
+                // File doesn't exist - this is okay, we'll create it
+                logger.info('📝 .env file not found, will create new one');
+            } else {
+                // File exists but we can't read it - abort to prevent data loss
+                logger.error(`⚠️ Cannot read .env file: ${readError.message}. Aborting to prevent data loss.`);
+                return false;
+            }
         }
         
         for (const [key, value] of Object.entries(credentials)) {
@@ -510,10 +521,17 @@ async function updateEnvCredentials(credentials) {
             process.env[key] = value;
         }
         
-        // Safety check: don't write if result would be empty
         const newContent = envContent.trim();
+        
+        // Safety check: don't write if result would be empty
         if (newContent.length === 0) {
             logger.warn('⚠️ Updated .env content would be empty, aborting write');
+            return false;
+        }
+        
+        // Safety check: if file existed and new content is significantly smaller, abort
+        if (fileExists && originalLength > 50 && newContent.length < originalLength * 0.5) {
+            logger.error(`⚠️ New .env content (${newContent.length} chars) is much smaller than original (${originalLength} chars). Aborting to prevent data loss.`);
             return false;
         }
         
