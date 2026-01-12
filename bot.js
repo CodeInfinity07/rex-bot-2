@@ -759,6 +759,7 @@ let pendingBans = [];
 let pendingKicks = [];
 let pendingUnbans = [];
 let pendingLevelChecks = [];
+let banAttempts = {}; // Track ban attempts per UID to avoid infinite loops
 
 // Global execute functions for queue processors (accessible from all scopes)
 function executeCheckLevel(UID) {
@@ -776,6 +777,17 @@ function executeCheckLevel(UID) {
 
 function executeBan(UID) {
     if (!clubAdmins.includes(String(UID))) {
+        // Check ban attempts - skip if already tried 3+ times
+        if (!banAttempts[UID]) {
+            banAttempts[UID] = 0;
+        }
+        banAttempts[UID]++;
+        
+        if (banAttempts[UID] > 3) {
+            logger.info(`⏭️ Skipping ban for UID ${UID} - already attempted ${banAttempts[UID]} times`);
+            return;
+        }
+        
         const message = JSON.stringify({
             RH: "CBC",
             PU: "KBU",
@@ -788,7 +800,7 @@ function executeBan(UID) {
             })
         });
         messageQueue.enqueue(message);
-        logger.info(`🔨 Executed ban for UID: ${UID}`);
+        logger.info(`🔨 Executed ban for UID: ${UID} (attempt ${banAttempts[UID]})`);
     }
 }
 
@@ -5183,6 +5195,11 @@ async function connectWebSocket() {
             }
 
             function banUser(UID) {
+                // Skip if already attempted 3+ times
+                if (banAttempts[UID] && banAttempts[UID] >= 3) {
+                    logger.info(`⏭️ Skipping ban queue for UID ${UID} - already attempted ${banAttempts[UID]} times`);
+                    return;
+                }
                 if (!clubAdmins.includes(String(UID)) && !pendingBans.includes(UID)) {
                     pendingBans.push(UID);
                     logger.info(`➕ Added UID to ban queue: ${UID}`);
