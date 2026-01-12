@@ -742,6 +742,72 @@ let pendingKicks = [];
 let pendingUnbans = [];
 let pendingLevelChecks = [];
 
+// Global execute functions for queue processors (accessible from all scopes)
+function executeCheckLevel(UID) {
+    const message = JSON.stringify({
+        "RH": "CBC",
+        "PU": "GCP",
+        "PY": JSON.stringify({
+            "S": false,
+            "UID": `${UID}`
+        })
+    });
+    messageQueue.enqueue(message);
+    logger.info(`📊 Executed level check for UID: ${UID}`);
+}
+
+function executeBan(UID) {
+    if (!clubAdmins.includes(String(UID))) {
+        const message = JSON.stringify({
+            RH: "CBC",
+            PU: "KBU",
+            PY: JSON.stringify({
+                B: true,
+                CID: `${club_code}`,
+                UID: `${UID}`,
+                R: 3,
+                OTH: ""
+            })
+        });
+        messageQueue.enqueue(message);
+        logger.info(`🔨 Executed ban for UID: ${UID}`);
+    }
+}
+
+function executeUnban(UID) {
+    if (!clubAdmins.includes(String(UID))) {
+        const message = JSON.stringify({
+            "RH": "CBC",
+            "PU": "UU",
+            "SQ": null,
+            "PY": JSON.stringify({
+                "CID": `${club_code}`,
+                "UID": `${UID}`
+            })
+        });
+        messageQueue.enqueue(message);
+        logger.info(`🔓 Executed unban for UID: ${UID}`);
+    }
+}
+
+function executeKick(UID) {
+    if (!clubAdmins.includes(String(UID))) {
+        const message = JSON.stringify({
+            RH: "CBC",
+            PU: "KBU",
+            PY: JSON.stringify({
+                B: false,
+                CID: `${club_code}`,
+                UID: `${UID}`,
+                R: 3,
+                OTH: ""
+            })
+        });
+        messageQueue.enqueue(message);
+        logger.info(`👢 Executed kick for UID: ${UID}`);
+    }
+}
+
 // Session tracking - tracks when users join the club
 const activeSessions = new Map();
 
@@ -5048,39 +5114,10 @@ async function connectWebSocket() {
                 }
             }
 
-            function executeCheckLevel(UID) {
-                sendWebSocketMessage(JSON.stringify({
-                    "RH": "CBC",
-                    "PU": "GCP",
-                    "PY": JSON.stringify({
-                        "S": false,
-                        "UID": `${UID}`
-                    })
-                }));
-                logger.info(`📊 Executed level check for UID: ${UID}`);
-            }
-
             function banUser(UID) {
                 if (!clubAdmins.includes(String(UID)) && !pendingBans.includes(UID)) {
                     pendingBans.push(UID);
                     logger.info(`➕ Added UID to ban queue: ${UID}`);
-                }
-            }
-
-            function executeBan(UID) {
-                if (!clubAdmins.includes(String(UID))) {
-                    sendWebSocketMessage(JSON.stringify({
-                        RH: "CBC",
-                        PU: "KBU",
-                        PY: JSON.stringify({
-                            B: true,
-                            CID: `${club_code}`,
-                            UID: `${UID}`,
-                            R: 3,
-                            OTH: ""
-                        })
-                    }));
-                    logger.info(`🔨 Executed ban for UID: ${UID}`);
                 }
             }
 
@@ -5135,42 +5172,10 @@ async function connectWebSocket() {
                 }
             }
 
-            function executeUnban(UID) {
-                if (!clubAdmins.includes(String(UID))) {
-                    sendWebSocketMessage(JSON.stringify({
-                        "RH": "CBC",
-                        "PU": "UU",
-                        "SQ": null,
-                        "PY": JSON.stringify({
-                            "CID": `${club_code}`,
-                            "UID": `${UID}`
-                        })
-                    }));
-                    logger.info(`🔓 Executed unban for UID: ${UID}`);
-                }
-            }
-
             function kickUser(UID) {
                 if (!clubAdmins.includes(String(UID)) && !pendingKicks.includes(UID)) {
                     pendingKicks.push(UID);
                     logger.info(`➕ Added UID to kick queue: ${UID}`);
-                }
-            }
-
-            function executeKick(UID) {
-                if (!clubAdmins.includes(String(UID))) {
-                    sendWebSocketMessage(JSON.stringify({
-                        RH: "CBC",
-                        PU: "KBU",
-                        PY: JSON.stringify({
-                            B: false,
-                            CID: `${club_code}`,
-                            UID: `${UID}`,
-                            R: 3,
-                            OTH: ""
-                        })
-                    }));
-                    logger.info(`👢 Executed kick for UID: ${UID}`);
                 }
             }
 
