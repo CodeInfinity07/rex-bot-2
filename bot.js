@@ -4419,6 +4419,91 @@ async function connectWebSocket() {
                                 }
                             }
 
+                            else if (String(message).startsWith("/member")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        const player_id = String(message).replace(/^\/member\s*/, '').trim().toUpperCase();
+
+                                        if (!player_id) {
+                                            sendMessage("Usage: /member [PLAYER_ID]");
+                                            return;
+                                        }
+
+                                        const membersData = await fs.readFile(MEMBERS_FILE, 'utf8');
+                                        const members = JSON.parse(membersData);
+                                        const currentWeek = getCurrentWeek();
+                                        const currentMonth = getCurrentMonth();
+
+                                        const memberFromFile = members.find(m => m.GC === player_id);
+                                        const memberFromSaved = savedData[player_id];
+
+                                        if (!memberFromFile && !memberFromSaved) {
+                                            sendMessage(`❌ No data found for player ID: ${player_id}`);
+                                            return;
+                                        }
+
+                                        const name = memberFromFile?.NM || memberFromSaved?.NM || 'Unknown';
+                                        const uid = memberFromSaved?.UID || memberFromFile?.UID || 'N/A';
+
+                                        let weeklyTime = '0s';
+                                        let monthlyTime = '0s';
+                                        let totalTime = '0s';
+
+                                        if (memberFromFile?.timeTracking) {
+                                            const tt = memberFromFile.timeTracking;
+                                            if (tt.lastWeekReset === currentWeek && tt.weeklySeconds > 0) {
+                                                weeklyTime = formatDuration(tt.weeklySeconds);
+                                            }
+                                            if (tt.lastMonthReset === currentMonth && tt.monthlySeconds > 0) {
+                                                monthlyTime = formatDuration(tt.monthlySeconds);
+                                            }
+                                            if (tt.totalSeconds > 0) {
+                                                totalTime = formatDuration(tt.totalSeconds);
+                                            }
+                                        }
+
+                                        let lastSeenStr = 'N/A';
+                                        if (memberFromSaved?.lastSeen) {
+                                            const lastSeenDate = new Date(memberFromSaved.lastSeen);
+                                            const now = new Date();
+                                            const diffMs = now - lastSeenDate;
+                                            const diffSeconds = Math.floor(diffMs / 1000);
+                                            const diffMinutes = Math.floor(diffSeconds / 60);
+                                            const diffHours = Math.floor(diffMinutes / 60);
+                                            const diffDays = Math.floor(diffHours / 24);
+
+                                            if (diffSeconds < 60) {
+                                                lastSeenStr = `${diffSeconds}s ago`;
+                                            } else if (diffMinutes < 60) {
+                                                lastSeenStr = `${diffMinutes}m ago`;
+                                            } else if (diffHours < 24) {
+                                                lastSeenStr = `${diffHours}h ago`;
+                                            } else {
+                                                lastSeenStr = `${diffDays}d ago`;
+                                            }
+                                        }
+
+                                        const oldNames = memberFromSaved?.oldNames || [];
+                                        const oldNamesStr = oldNames.length > 0 ? oldNames.slice(-3).join(', ') : 'None';
+
+                                        sendMessage(`📊 Member: ${name}`);
+                                        setTimeout(() => sendMessage(`🆔 GC: ${player_id} | UID: ${uid}`), 100);
+                                        setTimeout(() => sendMessage(`⏱️ Weekly: ${weeklyTime} | Monthly: ${monthlyTime}`), 200);
+                                        setTimeout(() => sendMessage(`📅 Total: ${totalTime} | Last Seen: ${lastSeenStr}`), 300);
+                                        if (oldNames.length > 0) {
+                                            setTimeout(() => sendMessage(`📝 Previous Names: ${oldNamesStr}`), 400);
+                                        }
+
+                                    } catch (error) {
+                                        console.error('Error in /member command:', error);
+                                        sendMessage('❌ Error loading member data.');
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
                             else if (String(message).startsWith("/spam")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
