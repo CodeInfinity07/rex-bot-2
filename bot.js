@@ -4444,11 +4444,9 @@ async function connectWebSocket() {
                                         }
 
                                         const name = memberFromFile?.NM || memberFromSaved?.NM || 'Unknown';
-                                        const uid = memberFromSaved?.UID || memberFromFile?.UID || 'N/A';
 
                                         let weeklyTime = '0s';
                                         let monthlyTime = '0s';
-                                        let totalTime = '0s';
 
                                         if (memberFromFile?.timeTracking) {
                                             const tt = memberFromFile.timeTracking;
@@ -4458,42 +4456,9 @@ async function connectWebSocket() {
                                             if (tt.lastMonthReset === currentMonth && tt.monthlySeconds > 0) {
                                                 monthlyTime = formatDuration(tt.monthlySeconds);
                                             }
-                                            if (tt.totalSeconds > 0) {
-                                                totalTime = formatDuration(tt.totalSeconds);
-                                            }
                                         }
 
-                                        let lastSeenStr = 'N/A';
-                                        if (memberFromSaved?.lastSeen) {
-                                            const lastSeenDate = new Date(memberFromSaved.lastSeen);
-                                            const now = new Date();
-                                            const diffMs = now - lastSeenDate;
-                                            const diffSeconds = Math.floor(diffMs / 1000);
-                                            const diffMinutes = Math.floor(diffSeconds / 60);
-                                            const diffHours = Math.floor(diffMinutes / 60);
-                                            const diffDays = Math.floor(diffHours / 24);
-
-                                            if (diffSeconds < 60) {
-                                                lastSeenStr = `${diffSeconds}s ago`;
-                                            } else if (diffMinutes < 60) {
-                                                lastSeenStr = `${diffMinutes}m ago`;
-                                            } else if (diffHours < 24) {
-                                                lastSeenStr = `${diffHours}h ago`;
-                                            } else {
-                                                lastSeenStr = `${diffDays}d ago`;
-                                            }
-                                        }
-
-                                        const oldNames = memberFromSaved?.oldNames || [];
-                                        const oldNamesStr = oldNames.length > 0 ? oldNames.slice(-3).join(', ') : 'None';
-
-                                        sendMessage(`📊 Member: ${name}`);
-                                        setTimeout(() => sendMessage(`🆔 GC: ${player_id} | UID: ${uid}`), 100);
-                                        setTimeout(() => sendMessage(`⏱️ Weekly: ${weeklyTime} | Monthly: ${monthlyTime}`), 200);
-                                        setTimeout(() => sendMessage(`📅 Total: ${totalTime} | Last Seen: ${lastSeenStr}`), 300);
-                                        if (oldNames.length > 0) {
-                                            setTimeout(() => sendMessage(`📝 Previous Names: ${oldNamesStr}`), 400);
-                                        }
+                                        sendMessage(`📊 ${name} | Weekly: ${weeklyTime} | Monthly: ${monthlyTime}`);
 
                                     } catch (error) {
                                         console.error('Error in /member command:', error);
