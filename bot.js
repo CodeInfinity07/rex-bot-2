@@ -19,6 +19,7 @@ require('dotenv').config();
 // Environment-based settings
 const ENABLE_LEVEL_BAN = process.env.ENABLE_LEVEL_BAN !== 'false';
 const MIC_COUNT = parseInt(process.env.MIC_COUNT, 10) || 10;
+const REPLIT_DASHBOARD_URL = process.env.REPLIT_DASHBOARD_URL || 'https://evilplanet.botpanels.live';
 
 // Simple logger replacement
 const logger = {
@@ -3477,15 +3478,42 @@ app.get('/api/jack/stream-config', async (req, res) => {
 // CONFIGURATION LOADING
 // ====================
 
+async function fetchSettingsFromDashboard() {
+    try {
+        logger.info(`📡 Fetching settings from dashboard: ${REPLIT_DASHBOARD_URL}/api/jack/settings`);
+        const response = await axios.get(`${REPLIT_DASHBOARD_URL}/api/jack/settings`, { timeout: 10000 });
+        if (response.data?.success && response.data?.data) {
+            logger.info('✅ Settings fetched from dashboard successfully');
+            return response.data.data;
+        }
+        logger.warn('⚠️ Dashboard returned no settings data');
+        return null;
+    } catch (error) {
+        logger.warn(`⚠️ Could not fetch settings from dashboard: ${error.message}`);
+        return null;
+    }
+}
+
 async function loadAllConfigurations() {
     try {
-        const settings = await loadConfigFromFile('settings');
+        // Try to fetch settings from Replit dashboard first (source of truth)
+        let settings = await fetchSettingsFromDashboard();
+        
+        // Fallback to local file if dashboard fetch fails
+        if (!settings) {
+            logger.info('📁 Falling back to local settings file...');
+            settings = await loadConfigFromFile('settings');
+        }
+        
         if (settings) {
             botConfig.settings = settings;
             // Update mics array based on micCount from settings
             const micCount = settings.micCount || 10;
             mics = new Array(micCount).fill(null);
             logger.info(`⚙️ Loaded settings: Avatars: ${settings.allowAvatars}, Ban Level: ${settings.banLevel}, Guest IDs: ${settings.allowGuestIds}, Level Ban: ${settings.enableLevelBan ?? true}, Mic Count: ${micCount}`);
+            
+            // Save to local file as cache
+            await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
         } else {
             botConfig.settings = {
                 allowAvatars: true,
