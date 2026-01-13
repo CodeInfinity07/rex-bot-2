@@ -4621,8 +4621,9 @@ async function connectWebSocket() {
                                     } else {
                                         const micNumber = Number(mic);
 
-                                        if (isNaN(micNumber) || micNumber < 1 || micNumber > 10) {
-                                            sendMessage(`Invalid microphone number. Please specify 1-10 or "all".`);
+                                        const maxMic = botConfig.settings?.micCount || 10;
+                                        if (isNaN(micNumber) || micNumber < 1 || micNumber > maxMic) {
+                                            sendMessage(`Invalid microphone number. Please specify 1-${maxMic} or "all".`);
                                         } else {
                                             unlockMic(micNumber);
                                             sendMessage(`Microphone ${micNumber} has been unlocked.`);
@@ -5022,8 +5023,9 @@ async function connectWebSocket() {
                                     } else {
                                         const micNumber = Number(mic);
 
-                                        if (isNaN(micNumber) || micNumber < 1 || micNumber > 10) {
-                                            sendMessage(`Invalid microphone number. Please specify 1-10 or "all".`);
+                                        const maxMic = botConfig.settings?.micCount || 10;
+                                        if (isNaN(micNumber) || micNumber < 1 || micNumber > maxMic) {
+                                            sendMessage(`Invalid microphone number. Please specify 1-${maxMic} or "all".`);
                                         } else {
                                             lockMic(micNumber);
                                             sendMessage(`Microphone ${micNumber} has been locked.`);
