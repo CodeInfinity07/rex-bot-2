@@ -176,12 +176,12 @@ async function fetchBotStatusFromDB(): Promise<{ connected: boolean; connecting:
       [club_code]
     ) as any;
 
-    logger.info(`📡 Bot status fetched from MySQL database for club_code=${club_code}: ${JSON.stringify(rows)}`);
-
     if (rows && rows.length > 0) {
       const row = rows[0];
+      const isConnected = row.status === 'connected';
+      logger.info(`📡 Bot status from MySQL: club_code=${club_code}, status=${row.status}, connected=${isConnected}`);
       return {
-        connected: row.status === 'connected',
+        connected: isConnected,
         connecting: false,
         lastUpdate: row.updated_at ? new Date(row.updated_at).toISOString() : null
       };
