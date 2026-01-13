@@ -4614,10 +4614,11 @@ async function connectWebSocket() {
                                     }
 
                                     if (String(mic).toLowerCase() === "all") {
-                                        for (let i = 1; i <= 10; i++) {
+                                        const maxMic = botConfig.settings?.micCount || 10;
+                                        for (let i = 1; i <= maxMic; i++) {
                                             unlockMic(i);
                                         }
-                                        sendMessage(`All microphones (1-10) have been unlocked.`);
+                                        sendMessage(`All microphones (1-${maxMic}) have been unlocked.`);
                                     } else {
                                         const micNumber = Number(mic);
 
@@ -5016,10 +5017,11 @@ async function connectWebSocket() {
                                     }
 
                                     if (String(mic).toLowerCase() === "all") {
-                                        for (let i = 1; i <= 10; i++) {
+                                        const maxMic = botConfig.settings?.micCount || 10;
+                                        for (let i = 1; i <= maxMic; i++) {
                                             lockMic(i);
                                         }
-                                        sendMessage(`All microphones (1-10) have been locked.`);
+                                        sendMessage(`All microphones (1-${maxMic}) have been locked.`);
                                     } else {
                                         const micNumber = Number(mic);
 
