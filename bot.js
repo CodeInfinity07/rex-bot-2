@@ -16,8 +16,6 @@ const { spawn } = require('child_process');
 
 require('dotenv').config();
 
-// Dashboard URL for settings sync
-const REPLIT_DASHBOARD_URL = process.env.REPLIT_DASHBOARD_URL || 'https://evilplanet.botpanels.live';
 
 // Simple logger replacement
 const logger = {
@@ -3478,8 +3476,8 @@ app.get('/api/jack/stream-config', async (req, res) => {
 
 async function fetchSettingsFromDashboard() {
     try {
-        logger.info(`📡 Fetching settings from dashboard: ${REPLIT_DASHBOARD_URL}/api/jack/settings`);
-        const response = await axios.get(`${REPLIT_DASHBOARD_URL}/api/jack/settings`, { timeout: 10000 });
+        logger.info(`📡 Fetching settings from dashboard: https://evilplanet.botpanels.live/api/jack/settings`);
+        const response = await axios.get(`https://evilplanet.botpanels.live/api/jack/settings`, { timeout: 10000 });
         if (response.data?.success && response.data?.data) {
             logger.info('✅ Settings fetched from dashboard successfully');
             return response.data.data;
