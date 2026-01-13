@@ -16,9 +16,7 @@ const { spawn } = require('child_process');
 
 require('dotenv').config();
 
-// Environment-based settings
-const ENABLE_LEVEL_BAN = process.env.ENABLE_LEVEL_BAN !== 'false';
-const MIC_COUNT = parseInt(process.env.MIC_COUNT, 10) || 10;
+// Dashboard URL for settings sync
 const REPLIT_DASHBOARD_URL = process.env.REPLIT_DASHBOARD_URL || 'https://evilplanet.botpanels.live';
 
 // Simple logger replacement
@@ -751,7 +749,7 @@ let botConfig = {
 let secretNumber = Math.floor(Math.random() * 100) + 1;
 let botMic = 0;
 let index_idx = 1;
-let mics = new Array(MIC_COUNT).fill(null);
+let mics = new Array(10).fill(null); // Will be updated from settings.json
 let onMic = false;
 let savedData = {};
 let clubAdmins = [];
@@ -4156,7 +4154,7 @@ async function connectWebSocket() {
                         }
 
                         if (jsonMessage.PY?.CUP) {
-                            const enableLevelBan = botConfig.settings?.enableLevelBan ?? ENABLE_LEVEL_BAN;
+                            const enableLevelBan = botConfig.settings?.enableLevelBan ?? true;
                             if (enableLevelBan) {
                                 const userGC = findPlayerID(jsonMessage.PY.UID);
                                 const isExemptFromLevel = userGC && botConfig.exemptions?.includes(userGC);
