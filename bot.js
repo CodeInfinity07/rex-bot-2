@@ -16,6 +16,29 @@ const { spawn } = require('child_process');
 
 require('dotenv').config();
 
+// Global mutex for .env file operations to prevent race conditions
+const envFileMutex = {
+    locked: false,
+    queue: [],
+    async acquire() {
+        return new Promise((resolve) => {
+            if (!this.locked) {
+                this.locked = true;
+                resolve();
+            } else {
+                this.queue.push(resolve);
+            }
+        });
+    },
+    release() {
+        if (this.queue.length > 0) {
+            const next = this.queue.shift();
+            next();
+        } else {
+            this.locked = false;
+        }
+    }
+};
 
 // Simple logger replacement
 const logger = {
@@ -484,18 +507,76 @@ function generateSessionToken() {
     return crypto.randomBytes(32).toString('hex');
 }
 
-// Update .env file with new credentials
+// Remove keys from .env file (mutex-protected to prevent race conditions)
+async function removeEnvCredentials(keysToRemove) {
+    await envFileMutex.acquire();
+    try {
+        const envPath = path.resolve('.env');
+        let envContent = '';
+        
+        logger.info(`📝 removeEnvCredentials called to remove keys: ${keysToRemove.join(', ')}`);
+        
+        try {
+            envContent = await fs.readFile(envPath, 'utf-8');
+        } catch (readError) {
+            if (readError.code === 'ENOENT') {
+                logger.info('📝 .env file not found, nothing to remove');
+                return true;
+            } else {
+                logger.error(`⚠️ Cannot read .env file: ${readError.message}. Aborting.`);
+                return false;
+            }
+        }
+        
+        if (!envContent || envContent.trim().length < 5) {
+            logger.warn('⚠️ .env file appears empty or corrupted, skipping removal');
+            return false;
+        }
+        
+        const originalLength = envContent.length;
+        const lines = envContent.split('\n');
+        const filteredLines = lines.filter(line => {
+            const trimmed = line.trim();
+            return !keysToRemove.some(key => trimmed.startsWith(`${key}=`));
+        });
+        
+        const newContent = filteredLines.join('\n').trim();
+        
+        if (newContent.length === 0) {
+            logger.warn('⚠️ Filtered content would be empty, skipping .env write to prevent data loss');
+            return false;
+        }
+        
+        logger.info(`📝 After removal: ${newContent.length} chars (was ${originalLength}), remaining keys: ${newContent.split('\n').filter(l => l.includes('=')).map(l => l.split('=')[0]).join(', ')}`);
+        
+        await fs.writeFile(envPath, newContent + '\n', 'utf-8');
+        logger.info(`✅ Removed keys from .env: ${keysToRemove.join(', ')}`);
+        return true;
+    } catch (error) {
+        logger.error('Error removing .env credentials:', error.message);
+        return false;
+    } finally {
+        envFileMutex.release();
+    }
+}
+
+// Update .env file with new credentials (mutex-protected to prevent race conditions)
 async function updateEnvCredentials(credentials) {
+    await envFileMutex.acquire();
     try {
         const envPath = path.resolve('.env');
         let envContent = '';
         let originalLength = 0;
         let fileExists = false;
         
+        logger.info(`📝 updateEnvCredentials called with keys: ${Object.keys(credentials).join(', ')}`);
+        
         try {
             envContent = await fs.readFile(envPath, 'utf-8');
             originalLength = envContent.length;
             fileExists = true;
+            logger.info(`📝 Read .env file: ${originalLength} chars, ${envContent.split('\n').length} lines`);
+            logger.info(`📝 Current .env keys: ${envContent.split('\n').filter(l => l.includes('=')).map(l => l.split('=')[0]).join(', ')}`);
         } catch (readError) {
             if (readError.code === 'ENOENT') {
                 // File doesn't exist - this is okay, we'll create it
@@ -520,6 +601,8 @@ async function updateEnvCredentials(credentials) {
         
         const newContent = envContent.trim();
         
+        logger.info(`📝 After update: ${newContent.length} chars, keys: ${newContent.split('\n').filter(l => l.includes('=')).map(l => l.split('=')[0]).join(', ')}`);
+        
         // Safety check: don't write if result would be empty
         if (newContent.length === 0) {
             logger.warn('⚠️ Updated .env content would be empty, aborting write');
@@ -538,6 +621,8 @@ async function updateEnvCredentials(credentials) {
     } catch (error) {
         logger.error('Error updating .env credentials:', error.message);
         return false;
+    } finally {
+        envFileMutex.release();
     }
 }
 
@@ -634,7 +719,7 @@ function ownerOnly(req, res, next) {
     next();
 }
 
-// Load environment variables from token.txt
+// Load environment variables from token.txt (uses mutex-protected updateEnvCredentials)
 (async () => {
     if (!bot_ep || !bot_key) {
         const tokenPath = path.resolve('token.txt');
@@ -654,6 +739,8 @@ function ownerOnly(req, res, next) {
                 bot_ep = pyData.EP;
                 bot_key = pyData.KEY;
 
+                // Use mutex-protected updateEnvCredentials instead of fs.appendFile
+                const credentialsToAdd = {};
                 const envPath = path.resolve('.env');
                 let envContent = '';
                 try {
@@ -661,14 +748,13 @@ function ownerOnly(req, res, next) {
                 } catch {
                     // .env might not exist
                 }
+                
+                if (!envContent.includes('EP=')) credentialsToAdd.EP = bot_ep;
+                if (!envContent.includes('KEY=')) credentialsToAdd.KEY = bot_key;
 
-                const newLines = [];
-                if (!envContent.includes('EP=')) newLines.push(`EP=${bot_ep}`);
-                if (!envContent.includes('KEY=')) newLines.push(`KEY=${bot_key}`);
-
-                if (newLines.length > 0) {
-                    await fs.appendFile(envPath, '\n' + newLines.join('\n'));
-                    console.log('✅ Added EP and KEY to .env');
+                if (Object.keys(credentialsToAdd).length > 0) {
+                    await updateEnvCredentials(credentialsToAdd);
+                    console.log('✅ Added EP and KEY to .env via mutex-protected function');
                 }
 
                 process.env.EP = bot_ep;
@@ -1790,34 +1876,9 @@ app.post('/api/jack/update-bot-uid', async (req, res) => {
         my_uid = newBotUid;
         process.env.BOT_UID = newBotUid;
         
-        // Update .env file
-        try {
-            const envPath = './.env';
-            let envContent = '';
-            try {
-                envContent = await fs.readFile(envPath, 'utf8');
-            } catch (e) {
-                envContent = '';
-            }
-            
-            // Update or add BOT_UID
-            if (envContent.includes('BOT_UID=')) {
-                envContent = envContent.replace(/BOT_UID=.*/g, `BOT_UID=${newBotUid}`);
-            } else {
-                envContent += `\nBOT_UID=${newBotUid}`;
-            }
-            
-            // Safety check: don't write if result would be empty
-            const newContent = envContent.trim();
-            if (newContent.length === 0) {
-                logger.warn('⚠️ Updated .env content would be empty, aborting BOT_UID write');
-            } else {
-                await fs.writeFile(envPath, newContent + '\n');
-            }
-            logger.info(`✅ Bot UID updated to: ${newBotUid}`);
-        } catch (envError) {
-            logger.error('Failed to update .env file:', envError.message);
-        }
+        // Update .env file using mutex-protected function
+        await updateEnvCredentials({ BOT_UID: newBotUid });
+        logger.info(`✅ Bot UID updated to: ${newBotUid}`);
         
         res.json({ 
             success: true, 
@@ -1904,43 +1965,14 @@ app.post('/api/jack/update-openai-key', async (req, res) => {
             });
         }
 
-        const envPath = path.resolve('.env');
-        let envContent = '';
-        try {
-            envContent = await fs.readFile(envPath, 'utf-8');
-        } catch (err) {
+        // Update .env file using mutex-protected function
+        const success = await updateEnvCredentials({ OPENAI: apiKey });
+        if (!success) {
             return res.json({
                 success: false,
-                message: '.env file not found'
+                message: 'Failed to update .env file'
             });
         }
-
-        const lines = envContent.split('\n');
-        let keyFound = false;
-
-        const updatedLines = lines.map(line => {
-            if (line.trim().startsWith('OPENAI=')) {
-                keyFound = true;
-                return `OPENAI=${apiKey}`;
-            }
-            return line;
-        });
-
-        if (!keyFound) {
-            updatedLines.push(`OPENAI=${apiKey}`);
-        }
-
-        // Safety check: don't write if result would be empty
-        const newContent = updatedLines.join('\n').trim();
-        if (newContent.length === 0) {
-            logger.warn('⚠️ Updated .env content would be empty, aborting write');
-            return res.json({
-                success: false,
-                message: 'Cannot update - would result in empty .env file'
-            });
-        }
-
-        await fs.writeFile(envPath, newContent + '\n', 'utf-8');
         process.env.OPENAI = apiKey;
 
         const reinitialized = reinitializeOpenAI(apiKey);
@@ -1970,41 +2002,13 @@ app.post('/api/jack/update-openai-key', async (req, res) => {
 
 app.post('/api/jack/clear-credentials', async (req, res) => {
     try {
-        const envPath = path.resolve('.env');
-        let envContent = '';
-        try {
-            envContent = await fs.readFile(envPath, 'utf-8');
-        } catch (err) {
+        // Use mutex-protected function to remove EP and KEY
+        const success = await removeEnvCredentials(['EP', 'KEY']);
+        
+        if (!success) {
             return res.json({
                 success: false,
-                message: '.env file not found'
-            });
-        }
-
-        // Safety check: don't modify if file is empty or too small
-        if (!envContent || envContent.trim().length < 5) {
-            logger.warn('⚠️ .env file appears empty or corrupted, skipping clear');
-            return res.json({
-                success: false,
-                message: '.env file appears empty or corrupted'
-            });
-        }
-
-        const lines = envContent.split('\n');
-        const filteredLines = lines.filter(line => {
-            const trimmed = line.trim();
-            return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
-        });
-
-        // Only write if we still have content
-        const newContent = filteredLines.join('\n').trim();
-        if (newContent.length > 0) {
-            await fs.writeFile(envPath, newContent + '\n', 'utf-8');
-        } else {
-            logger.warn('⚠️ Filtered content would be empty, skipping .env write to prevent data loss');
-            return res.json({
-                success: false,
-                message: 'Cannot clear - would result in empty .env file'
+                message: 'Failed to clear credentials from .env file'
             });
         }
 
@@ -2828,33 +2832,8 @@ app.post('/api/jack/update-token', async (req, res) => {
         await fs.writeFile('token.txt', token, 'utf8');
         logger.info('✅ token.txt updated');
 
-        // Remove EP and KEY from .env file
-        try {
-            const envPath = '.env';
-            const envContent = await fs.readFile(envPath, 'utf8');
-            
-            // Safety check: don't modify if file is empty or too small
-            if (!envContent || envContent.trim().length < 5) {
-                logger.warn('⚠️ .env file appears empty or corrupted, skipping EP/KEY removal');
-            } else {
-                const lines = envContent.split('\n');
-                const filteredLines = lines.filter(line => {
-                    const trimmed = line.trim();
-                    return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
-                });
-                
-                // Only write if we still have content
-                const newContent = filteredLines.join('\n').trim();
-                if (newContent.length > 0) {
-                    await fs.writeFile(envPath, newContent + '\n', 'utf8');
-                    logger.info('✅ EP and KEY removed from .env file');
-                } else {
-                    logger.warn('⚠️ Filtered content would be empty, skipping .env write to prevent data loss');
-                }
-            }
-        } catch (envError) {
-            logger.warn('⚠️ Could not update .env file:', envError.message);
-        }
+        // Remove EP and KEY from .env file using mutex-protected function
+        await removeEnvCredentials(['EP', 'KEY']);
 
         // Remove EP and KEY from runtime environment
         delete process.env.EP;
