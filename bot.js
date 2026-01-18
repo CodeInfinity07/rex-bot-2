@@ -4584,7 +4584,7 @@ async function connectWebSocket() {
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
                                         sendMessage("Sending reset request to dashboard...");
-                                        const response = await axios.post('https://evilplanet.botpanels.live/reset', {}, { timeout: 10000 });
+                                        const response = await axios.get('https://evilplanet.botpanels.live/reset', { timeout: 10000 });
                                         if (response.data?.success) {
                                             sendMessage("Dashboard reset successful!");
                                         } else {

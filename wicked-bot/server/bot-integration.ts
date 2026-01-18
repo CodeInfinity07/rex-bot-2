@@ -2063,13 +2063,14 @@ export function setupBotIntegration(app: Express) {
   });
 
   // Reset endpoint - called by bot.js /reset command
-  app.post('/reset', async (req, res) => {
+  app.get('/reset', async (req, res) => {
     try {
       logger.info('🔄 Reset requested from bot.js /reset command');
       res.json({
         success: true,
-        message: 'Dashboard reset acknowledged'
+        message: 'Shutting down...'
       });
+      setTimeout(() => process.exit(0), 100);
     } catch (error) {
       logger.error(`❌ Reset error: ${error}`);
       res.json({ success: false, message: 'Reset failed' });
