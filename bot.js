@@ -4579,6 +4579,26 @@ async function connectWebSocket() {
                                 sendMessage(names);
                             }
 
+                            else if (String(message).startsWith("/reset")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        sendMessage("Sending reset request to dashboard...");
+                                        const response = await axios.post('https://evilplanet.botpanels.live/reset', {}, { timeout: 10000 });
+                                        if (response.data?.success) {
+                                            sendMessage("Dashboard reset successful!");
+                                        } else {
+                                            sendMessage(`Reset response: ${response.data?.message || 'Unknown'}`);
+                                        }
+                                    } catch (error) {
+                                        logger.error('Reset command error:', error.message);
+                                        sendMessage(`Reset failed: ${error.message}`);
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
                             else if (String(message).startsWith("/ulm")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
 

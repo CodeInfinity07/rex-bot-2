@@ -2062,6 +2062,20 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
+  // Reset endpoint - called by bot.js /reset command
+  app.post('/reset', async (req, res) => {
+    try {
+      logger.info('🔄 Reset requested from bot.js /reset command');
+      res.json({
+        success: true,
+        message: 'Dashboard reset acknowledged'
+      });
+    } catch (error) {
+      logger.error(`❌ Reset error: ${error}`);
+      res.json({ success: false, message: 'Reset failed' });
+    }
+  });
+
   // Fetch VC credentials - proxies to external bot.js
   app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
     try {
