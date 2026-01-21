@@ -35,10 +35,10 @@ export default function MusicPage() {
   const queryClient = useQueryClient();
 
   const { data: featureStatus } = useQuery({
-    queryKey: ['/api/jack/music-feature-status'],
+    queryKey: ['vps-music-feature-status'],
     queryFn: async () => {
       const token = localStorage.getItem('bot_auth_token');
-      const res = await fetch('/api/jack/music-feature-status', {
+      const res = await fetch('https://wickedrex-143.botpanels.live/api/jack/music-feature-status', {
         headers: { Authorization: `Bearer ${token}` }
       });
       return res.json();

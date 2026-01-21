@@ -2157,11 +2157,6 @@ export function setupBotIntegration(app: Express) {
     }
   });
 
-  // Music upload feature status
-  app.get('/api/jack/music-feature-status', authMiddleware, (req: AuthRequest, res) => {
-    res.json({ success: true, uploadEnabled: MUSIC_UPLOAD_ENABLED });
-  });
-
   // Songs directory and multer setup
   const SONGS_DIR = path.join(process.cwd(), 'data', 'songs');
   const songsStorage = multer.diskStorage({

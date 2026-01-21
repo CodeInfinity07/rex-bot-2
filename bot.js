@@ -3152,6 +3152,12 @@ app.get('/api/jack/stream-songs', async (req, res) => {
     }
 });
 
+// Music upload feature status
+app.get('/api/jack/music-feature-status', authMiddleware, (req, res) => {
+    const MUSIC_UPLOAD_ENABLED = process.env.MUSIC_UPLOAD_ENABLED === 'true';
+    res.json({ success: true, uploadEnabled: MUSIC_UPLOAD_ENABLED });
+});
+
 // Get all songs (authenticated)
 app.get('/api/jack/songs', authMiddleware, async (req, res) => {
     try {
