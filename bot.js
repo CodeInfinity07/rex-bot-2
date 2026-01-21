@@ -222,6 +222,7 @@ let my_uid = process.env.BOT_UID;
 let bot_ep = process.env.EP;
 let bot_key = process.env.KEY;
 const PORT = process.env.PORT;
+const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://evilplanet.botpanels.live';
 let allowInvites = false;
 let membersData = [];
 let bannedUserIds = [];
@@ -3455,8 +3456,8 @@ app.get('/api/jack/stream-config', async (req, res) => {
 
 async function fetchSettingsFromDashboard() {
     try {
-        logger.info(`📡 Fetching settings from dashboard: https://evilplanet.botpanels.live/api/jack/settings`);
-        const response = await axios.get(`https://evilplanet.botpanels.live/api/jack/settings`, { timeout: 10000 });
+        logger.info(`📡 Fetching settings from dashboard: ${DASHBOARD_URL}/api/jack/settings`);
+        const response = await axios.get(`${DASHBOARD_URL}/api/jack/settings`, { timeout: 10000 });
         if (response.data?.success && response.data?.data) {
             logger.info('✅ Settings fetched from dashboard successfully');
             return response.data.data;
@@ -4584,7 +4585,7 @@ async function connectWebSocket() {
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
                                         sendMessage("Sending reset request to dashboard...");
-                                        const response = await axios.get('https://evilplanet.botpanels.live/reset', { timeout: 10000 });
+                                        const response = await axios.get(`${DASHBOARD_URL}/reset`, { timeout: 10000 });
                                         if (response.data?.success) {
                                             sendMessage("Dashboard reset successful!");
                                         } else {
