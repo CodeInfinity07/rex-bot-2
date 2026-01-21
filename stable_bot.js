@@ -173,6 +173,8 @@ let my_uid = process.env.BOT_UID;
 let bot_ep = process.env.EP;
 let bot_key = process.env.KEY;
 const PORT = process.env.PORT;
+const OWNER_ID = process.env.OWNER_ID;
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 let allowInvites = false;
 let membersData = [];
 let bannedUserIds = [];
@@ -624,6 +626,125 @@ async function loadSettings() {
         }
     }
 }
+
+function generateSessionToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+async function getSession(token) {
+    if (!mysqlPool) {
+        logger.warn('⚠️ getSession called but MySQL pool not available');
+        return null;
+    }
+    try {
+        const [rows] = await mysqlPool.query(
+            'SELECT user_id, role, login_time FROM dashboard_sessions WHERE token = ?',
+            [token]
+        );
+        if (rows && rows.length > 0) {
+            const loginTime = rows[0].login_time;
+            return {
+                userId: rows[0].user_id,
+                role: rows[0].role,
+                loginTime: loginTime instanceof Date ? loginTime.toISOString() : loginTime
+            };
+        }
+        return null;
+    } catch (error) {
+        logger.error('Error reading session from MySQL:', error.message);
+        return null;
+    }
+}
+
+async function setSession(token, sessionData) {
+    if (!mysqlPool) return false;
+    try {
+        await mysqlPool.query(
+            'INSERT INTO dashboard_sessions (token, user_id, role, login_time) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), role = VALUES(role), login_time = VALUES(login_time)',
+            [token, sessionData.userId, sessionData.role, new Date(sessionData.loginTime)]
+        );
+        return true;
+    } catch (error) {
+        logger.error('Error saving session to MySQL:', error.message);
+        return false;
+    }
+}
+
+async function deleteSession(token) {
+    if (!mysqlPool) return false;
+    try {
+        await mysqlPool.query('DELETE FROM dashboard_sessions WHERE token = ?', [token]);
+        return true;
+    } catch (error) {
+        logger.error('Error deleting session from MySQL:', error.message);
+        return false;
+    }
+}
+
+async function loadActivityLogs() {
+    try {
+        const data = await fs.readFile('./activity_logs.json', 'utf8');
+        return JSON.parse(data);
+    } catch {
+        return [];
+    }
+}
+
+async function saveActivityLogs(logs) {
+    await fs.writeFile('./activity_logs.json', JSON.stringify(logs, null, 2), 'utf8');
+}
+
+async function logActivity(userId, userRole, action, details) {
+    const logs = await loadActivityLogs();
+    const logEntry = {
+        id: crypto.randomUUID(),
+        userId,
+        userRole,
+        action,
+        details,
+        timestamp: new Date().toISOString()
+    };
+    logs.unshift(logEntry);
+    if (logs.length > 500) {
+        logs.length = 500;
+    }
+    await saveActivityLogs(logs);
+}
+
+app.post('/api/jack/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        if (!username || !password) {
+            return res.json({ success: false, message: 'Username and password are required' });
+        }
+        
+        if (username === OWNER_ID && password === OWNER_PASSWORD) {
+            const token = generateSessionToken();
+            await setSession(token, {
+                userId: username,
+                role: 'owner',
+                loginTime: new Date().toISOString()
+            });
+            
+            await logActivity(username, 'owner', 'LOGIN', { message: 'Owner logged in' });
+            
+            return res.json({
+                success: true,
+                data: {
+                    token,
+                    user: { id: username, role: 'owner' }
+                }
+            });
+        }
+        
+        return res.json({ success: false, message: 'Invalid credentials' });
+        
+    } catch (error) {
+        logger.error('Login error:', error.message);
+        res.json({ success: false, message: 'Login failed' });
+    }
+});
 
 app.get('/api/jack/get-token', async (req, res) => {
     try {
