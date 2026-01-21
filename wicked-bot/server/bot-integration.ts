@@ -9,6 +9,7 @@ import * as dotenv from 'dotenv';
 import WebSocket from 'ws';
 import bcrypt from 'bcryptjs';
 import mysql from 'mysql2/promise';
+import multer from 'multer';
 
 // Load environment variables from root .env file (where bot.js is located)
 // The wicked-bot server runs from wicked-bot/ directory, so we go up one level
@@ -26,6 +27,9 @@ const AGORA_APP_ID = process.env.AGORA_APP_ID;
 const AGORA_CHANNEL = process.env.AGORA_CHANNEL;
 const AGORA_TOKEN = process.env.AGORA_TOKEN;
 const AGORA_USER_ID = process.env.AGORA_USER_ID;
+
+// Music upload feature flag from root .env
+const MUSIC_UPLOAD_ENABLED = process.env.MUSIC_UPLOAD_ENABLED === 'true';
 
 // Bot control secret for WebSocket authentication
 const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
@@ -2150,6 +2154,140 @@ export function setupBotIntegration(app: Express) {
       res.json({ success: true, data: songs });
     } catch (error) {
       res.json({ success: false, message: 'Failed to load songs' });
+    }
+  });
+
+  // Music upload feature status
+  app.get('/api/jack/music-feature-status', authMiddleware, (req: AuthRequest, res) => {
+    res.json({ success: true, uploadEnabled: MUSIC_UPLOAD_ENABLED });
+  });
+
+  // Songs directory and multer setup
+  const SONGS_DIR = path.join(process.cwd(), 'data', 'songs');
+  const songsStorage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+      try {
+        await fs.mkdir(SONGS_DIR, { recursive: true });
+        cb(null, SONGS_DIR);
+      } catch (err) {
+        cb(err as Error, SONGS_DIR);
+      }
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, uniqueSuffix + '-' + file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'));
+    }
+  });
+  const songUpload = multer({
+    storage: songsStorage,
+    limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype === 'audio/mpeg' || file.originalname.toLowerCase().endsWith('.mp3')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only MP3 files are allowed'));
+      }
+    }
+  });
+
+  // Get songs list (authenticated)
+  app.get('/api/jack/songs', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
+      let songs: any[] = [];
+      try {
+        const data = await fs.readFile(songsMetadataPath, 'utf8');
+        const parsed = JSON.parse(data);
+        songs = Array.isArray(parsed) ? parsed : (parsed.songs || []);
+      } catch (err) {}
+      
+      res.json({ success: true, data: songs });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to load songs' });
+    }
+  });
+
+  // Upload song
+  app.post('/api/jack/songs/upload', authMiddleware, songUpload.single('song'), async (req: any, res: any) => {
+    try {
+      if (!MUSIC_UPLOAD_ENABLED) {
+        return res.json({ success: false, message: 'This feature is not available for you' });
+      }
+
+      if (!req.file) {
+        return res.json({ success: false, message: 'No file uploaded' });
+      }
+
+      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
+      let songs: any[] = [];
+      try {
+        const data = await fs.readFile(songsMetadataPath, 'utf8');
+        const parsed = JSON.parse(data);
+        songs = Array.isArray(parsed) ? parsed : (parsed.songs || []);
+      } catch (err) {}
+
+      if (songs.length >= 15) {
+        await fs.unlink(req.file.path);
+        return res.json({ success: false, message: 'Maximum 15 songs allowed' });
+      }
+
+      const newSong = {
+        id: crypto.randomUUID(),
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        size: req.file.size,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: req.user?.userId || 'unknown'
+      };
+
+      songs.push(newSong);
+      await fs.writeFile(songsMetadataPath, JSON.stringify(songs, null, 2), 'utf8');
+
+      logger.info(`🎵 Song uploaded: ${newSong.originalName} by ${newSong.uploadedBy}`);
+      res.json({ success: true, message: 'Song uploaded successfully', data: newSong });
+    } catch (error: any) {
+      logger.error(`❌ Error uploading song: ${error.message}`);
+      res.json({ success: false, message: error.message || 'Failed to upload song' });
+    }
+  });
+
+  // Delete song
+  app.delete('/api/jack/songs/:id', authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const songsMetadataPath = path.join(process.cwd(), 'data', 'songs_metadata.json');
+      
+      let songs: any[] = [];
+      try {
+        const data = await fs.readFile(songsMetadataPath, 'utf8');
+        const parsed = JSON.parse(data);
+        songs = Array.isArray(parsed) ? parsed : (parsed.songs || []);
+      } catch (err) {
+        return res.json({ success: false, message: 'No songs found' });
+      }
+
+      const songIndex = songs.findIndex(s => s.id === id);
+      if (songIndex === -1) {
+        return res.json({ success: false, message: 'Song not found' });
+      }
+
+      const song = songs[songIndex];
+      const songPath = path.join(SONGS_DIR, song.filename);
+      
+      try {
+        await fs.unlink(songPath);
+      } catch (err) {
+        logger.warn(`⚠️ Could not delete song file: ${songPath}`);
+      }
+
+      songs.splice(songIndex, 1);
+      await fs.writeFile(songsMetadataPath, JSON.stringify(songs, null, 2), 'utf8');
+
+      logger.info(`🗑️ Song deleted: ${song.originalName}`);
+      res.json({ success: true, message: 'Song deleted successfully' });
+    } catch (error: any) {
+      logger.error(`❌ Error deleting song: ${error.message}`);
+      res.json({ success: false, message: 'Failed to delete song' });
     }
   });
 

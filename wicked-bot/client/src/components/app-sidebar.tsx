@@ -1,4 +1,4 @@
-import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog, Music2, Radio } from "lucide-react";
+import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog, Music2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
@@ -26,7 +26,6 @@ const menuItems = [
   { title: "Players", url: "/players", icon: UserSearch },
   { title: "Commands", url: "/commands", icon: Command },
   { title: "Music", url: "/music", icon: Music2 },
-  { title: "Stream", url: "/stream", icon: Radio },
 ];
 
 const ownerOnlyItems = [

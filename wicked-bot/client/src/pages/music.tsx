@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Music2, Upload, Trash2, FileAudio, AlertCircle } from "lucide-react";
+import { Music2, Upload, Trash2, FileAudio, AlertCircle, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -33,6 +33,17 @@ export default function MusicPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const { data: featureStatus } = useQuery({
+    queryKey: ['/api/jack/music-feature-status'],
+    queryFn: async () => {
+      const token = localStorage.getItem('bot_auth_token');
+      const res = await fetch('/api/jack/music-feature-status', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.json();
+    }
+  });
 
   const { data: songsData, isLoading } = useQuery({
     queryKey: ['/api/jack/songs'],
@@ -128,6 +139,7 @@ export default function MusicPage() {
 
   const songs: Song[] = songsData?.data || [];
   const canUpload = songs.length < 15;
+  const uploadEnabled = featureStatus?.uploadEnabled === true;
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -144,6 +156,29 @@ export default function MusicPage() {
       minute: '2-digit'
     });
   };
+
+  if (!uploadEnabled) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">Music Library</h1>
+          <p className="text-muted-foreground mt-1">
+            Upload and manage songs for streaming
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16">
+            <Lock className="h-16 w-16 text-muted-foreground mb-4" />
+            <h2 className="text-xl font-semibold mb-2">This feature is not available for you</h2>
+            <p className="text-muted-foreground text-center max-w-md">
+              Music upload functionality is currently disabled. Please contact the administrator if you need access to this feature.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

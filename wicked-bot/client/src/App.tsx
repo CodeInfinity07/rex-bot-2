@@ -22,7 +22,6 @@ import LoyalMembers from "@/pages/loyal-members";
 import ActivityLogs from "@/pages/activity-logs";
 import Moderators from "@/pages/moderators";
 import Music from "@/pages/music";
-import Stream from "@/pages/stream";
 
 function ProtectedRoutes() {
   return (
@@ -48,15 +47,6 @@ function ProtectedRoutes() {
 function AppContent() {
   const { user, isLoading } = useAuth();
   const [location] = useLocation();
-
-  // Stream page is public - no auth required
-  if (location === '/stream') {
-    return (
-      <div className="min-h-screen bg-background p-6">
-        <Stream />
-      </div>
-    );
-  }
 
   if (isLoading) {
     return (
