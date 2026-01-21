@@ -711,41 +711,6 @@ async function logActivity(userId, userRole, action, details) {
     await saveActivityLogs(logs);
 }
 
-app.post('/api/jack/login', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        
-        if (!username || !password) {
-            return res.json({ success: false, message: 'Username and password are required' });
-        }
-        
-        if (username === OWNER_ID && password === OWNER_PASSWORD) {
-            const token = generateSessionToken();
-            await setSession(token, {
-                userId: username,
-                role: 'owner',
-                loginTime: new Date().toISOString()
-            });
-            
-            await logActivity(username, 'owner', 'LOGIN', { message: 'Owner logged in' });
-            
-            return res.json({
-                success: true,
-                data: {
-                    token,
-                    user: { id: username, role: 'owner' }
-                }
-            });
-        }
-        
-        return res.json({ success: false, message: 'Invalid credentials' });
-        
-    } catch (error) {
-        logger.error('Login error:', error.message);
-        res.json({ success: false, message: 'Login failed' });
-    }
-});
-
 app.get('/api/jack/get-token', async (req, res) => {
     try {
         const tokenPath = path.join(__dirname, 'token.txt');
