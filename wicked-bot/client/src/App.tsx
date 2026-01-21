@@ -22,6 +22,7 @@ import LoyalMembers from "@/pages/loyal-members";
 import ActivityLogs from "@/pages/activity-logs";
 import Moderators from "@/pages/moderators";
 import Music from "@/pages/music";
+import SpamKicks from "@/pages/spam-kicks";
 
 function ProtectedRoutes() {
   return (
@@ -39,6 +40,7 @@ function ProtectedRoutes() {
       <Route path="/moderators" component={Moderators} />
       <Route path="/logs" component={ActivityLogs} />
       <Route path="/music" component={Music} />
+      <Route path="/spam-kicks" component={SpamKicks} />
       <Route component={Overview} />
     </Switch>
   );

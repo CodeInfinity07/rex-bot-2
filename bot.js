@@ -3158,6 +3158,26 @@ app.get('/api/jack/music-feature-status', authMiddleware, (req, res) => {
     res.json({ success: true, uploadEnabled: MUSIC_UPLOAD_ENABLED });
 });
 
+// Get spam kick logs (authenticated)
+app.get('/api/jack/spam-kicks', authMiddleware, async (req, res) => {
+    try {
+        const kicks = await loadSpamKicks();
+        res.json({ success: true, data: kicks });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to load spam kicks' });
+    }
+});
+
+// Clear spam kick logs (authenticated)
+app.delete('/api/jack/spam-kicks', authMiddleware, async (req, res) => {
+    try {
+        await saveSpamKicks([]);
+        res.json({ success: true, message: 'Spam kick logs cleared' });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to clear spam kicks' });
+    }
+});
+
 // Get all songs (authenticated)
 app.get('/api/jack/songs', authMiddleware, async (req, res) => {
     try {
@@ -3819,6 +3839,72 @@ function findPlayerName(UID) {
         if (savedData[GC].UID === UID) {
             return savedData[GC].NM;
         }
+    }
+}
+
+// Spam Kick Logs
+const SPAM_KICKS_FILE = './data/spam_kicks.json';
+
+async function loadSpamKicks() {
+    try {
+        const data = await fs.readFile(SPAM_KICKS_FILE, 'utf-8');
+        const parsed = JSON.parse(data);
+        if (!Array.isArray(parsed)) {
+            logger.warn('Spam kicks file is not an array, initializing empty');
+            return [];
+        }
+        return parsed;
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return [];
+        }
+        if (err instanceof SyntaxError) {
+            logger.error(`Spam kicks file is corrupted: ${err.message}`);
+            try {
+                await fs.rename(SPAM_KICKS_FILE, `${SPAM_KICKS_FILE}.backup`);
+                logger.info('Backed up corrupted spam kicks file');
+            } catch (backupErr) {
+                logger.error(`Failed to backup corrupted file: ${backupErr.message}`);
+            }
+        }
+        return [];
+    }
+}
+
+async function saveSpamKicks(kicks) {
+    try {
+        await fs.mkdir('./data', { recursive: true });
+        await fs.writeFile(SPAM_KICKS_FILE, JSON.stringify(kicks, null, 2), 'utf-8');
+    } catch (err) {
+        logger.error(`Failed to save spam kicks: ${err.message}`);
+    }
+}
+
+async function logSpamKick(UID, message, matchedWord, actionType) {
+    try {
+        const kicks = await loadSpamKicks();
+        const username = findPlayerName(UID) || 'Unknown';
+        
+        const kickEntry = {
+            id: crypto.randomUUID(),
+            username: username,
+            uid: UID,
+            message: message,
+            matchedWord: matchedWord,
+            action: actionType,
+            timestamp: new Date().toISOString()
+        };
+        
+        kicks.unshift(kickEntry);
+        
+        if (kicks.length > 500) {
+            kicks.length = 500;
+        }
+        
+        await saveSpamKicks(kicks);
+        logger.info(`📝 Logged spam ${actionType}: ${username} - "${message}" (matched: ${matchedWord})`);
+    } catch (err) {
+        logger.error(`Failed to log spam kick: ${err.message}`);
     }
 }
 
@@ -5043,8 +5129,13 @@ async function connectWebSocket() {
                             }
 
                             else if (botConfig.spamWords.some(word => String(message).toLowerCase().includes(word))) {
+                                const matchedWord = botConfig.spamWords.find(word => String(message).toLowerCase().includes(word));
+                                const punishmentType = botConfig.settings?.punishments?.spamWords || 'ban';
                                 applyPunishment(UID, 'spamWords');
                                 deleteMsg(jsonMessage.PY.MID);
+                                if (punishmentType === 'kick') {
+                                    logSpamKick(UID, String(message), matchedWord, 'kick');
+                                }
                                 botState.stats.spamBlocked++;
                             }
                         }
