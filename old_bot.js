@@ -44,6 +44,8 @@ let pendingVCRequest = null;
 let currentSequence = 2;
 let index_idx = 1;
 let onMic = false;
+let currentClubCode = null;
+let refreshIntervalId = null;
 
 let botState = {
     connected: false,
@@ -674,10 +676,6 @@ async function connectWebSocket() {
                         await logSocketStatus('connected', 'WebSocket connection established');
 
                         joinClub(club_code);
-
-                        setInterval(() => {
-                            refresh();
-                        }, 25000);
                     }
 
                     if (jsonMessage?.PY?.hasOwnProperty('ER') &&
@@ -722,17 +720,28 @@ async function connectWebSocket() {
             });
 
             function refresh() {
-                if (inClub) {
+                if (inClub && currentClubCode) {
                     sendWebSocketMessage(JSON.stringify({
                         RH: "CBC",
                         PU: "RE",
-                        PY: JSON.stringify({ CID: `${club_code}` })
+                        PY: JSON.stringify({ CID: `${currentClubCode}` })
                     }));
                     resetSequence();
                 }
             }
 
+            function startRefreshInterval() {
+                if (refreshIntervalId) {
+                    clearInterval(refreshIntervalId);
+                }
+                refreshIntervalId = setInterval(() => {
+                    refresh();
+                }, 25000);
+            }
+
             function joinClub(code) {
+                currentClubCode = code;
+                
                 sendWebSocketMessage(JSON.stringify({
                     "RH": "CBC",
                     "PU": "CJ",
@@ -771,6 +780,8 @@ async function connectWebSocket() {
 
                 onMic = false;
                 inClub = true;
+                
+                startRefreshInterval();
             }
 
         } catch (error) {
