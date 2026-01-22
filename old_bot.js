@@ -420,7 +420,7 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
             credentials: credentials
         });
 
-        await new Promise(resolve => setTimeout(resolve, 300000));
+        await new Promise(resolve => setTimeout(resolve, 20000));
 
         botState.ws.send(Buffer.from(JSON.stringify({
             RH: "CBC",
@@ -678,13 +678,6 @@ async function connectWebSocket() {
                         setInterval(() => {
                             refresh();
                         }, 25000);
-
-                        setTimeout(() => {
-                            setInterval(() => {
-                                exitclub();
-                                joinClub(club_code);
-                            }, 3600000);
-                        }, 5000);
                     }
 
                     if (jsonMessage?.PY?.hasOwnProperty('ER') &&
