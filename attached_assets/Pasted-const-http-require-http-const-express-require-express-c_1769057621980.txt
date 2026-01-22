@@ -15,11 +15,13 @@ require('dotenv').config();
 
 const readline = require('readline');
 
+// Create readline interface
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
+// Helper function to prompt for input
 function promptInput(question) {
     return new Promise((resolve) => {
         rl.question(question, (answer) => {
@@ -28,12 +30,14 @@ function promptInput(question) {
     });
 }
 
+// Simple logger replacement
 const logger = {
     info: (message) => console.log(`[INFO] ${message}`),
     error: (message) => console.error(`[ERROR] ${message}`),
     warn: (message) => console.warn(`[WARN] ${message}`)
 };
 
+// MySQL Configuration
 const MYSQL_CONFIG = {
     host: process.env.MYSQL_HOST || '94.72.106.77',
     user: process.env.MYSQL_USER || 'ryzon',
@@ -44,6 +48,97 @@ const MYSQL_CONFIG = {
     queueLimit: 0
 };
 
+// Message queue system
+class MessageQueue {
+    constructor() {
+        this.queue = [];
+        this.processing = false;
+        this.currentSequence = 2;
+    }
+
+    getNextSequence() {
+        return this.currentSequence++;
+    }
+
+    resetSequence() {
+        this.currentSequence = 2;
+    }
+
+    async enqueue(messagePayload) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ messagePayload, resolve, reject });
+            this.process();
+        });
+    }
+
+    async process() {
+        if (this.processing || this.queue.length === 0) {
+            return;
+        }
+
+        this.processing = true;
+
+        while (this.queue.length > 0) {
+            const { messagePayload, resolve, reject } = this.queue.shift();
+
+            try {
+                let parsedMessage;
+                let needsSequence = false;
+
+                try {
+                    parsedMessage = JSON.parse(messagePayload);
+                    needsSequence = parsedMessage.hasOwnProperty('SQ');
+                } catch {
+                    await this._sendDirectly(messagePayload);
+                    resolve();
+                    continue;
+                }
+
+                if (needsSequence) {
+                    parsedMessage.SQ = this.getNextSequence();
+                }
+
+                await this._sendDirectly(JSON.stringify(parsedMessage));
+                console.log(parsedMessage);
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        this.processing = false;
+    }
+
+    async _sendDirectly(message) {
+        return new Promise((resolve, reject) => {
+            if (!botState.ws || botState.ws.readyState !== WebSocket.OPEN) {
+                reject(new Error("WebSocket is not open"));
+                return;
+            }
+
+            try {
+                const base64Message = Buffer.from(message, 'utf8').toString('base64');
+
+                botState.ws.send(base64Message, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+}
+
+// Create global message queue instance
+const messageQueue = new MessageQueue();
+
+// Express app setup
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -69,9 +164,9 @@ const ICIC_USAGE_FILE = './icic_usage.json';
 const SETTINGS_FILE = './settings.json';
 const MEMBERS_FILE = './club_members.json';
 const conversationHistory = new Map();
-let pendingVCRequest = null;
-let currentSequence = 2;
+let pendingVCRequest = null; // Pending VC credential fetch request
 
+// Load environment variables from token.txt
 (async () => {
     if (!bot_ep || !bot_key) {
         const tokenPath = path.resolve('token.txt');
@@ -91,6 +186,7 @@ let currentSequence = 2;
             try {
                 envContent = await fs.readFile(envPath, 'utf-8');
             } catch {
+                // .env might not exist
             }
 
             const newLines = [];
@@ -99,14 +195,14 @@ let currentSequence = 2;
 
             if (newLines.length > 0) {
                 await fs.appendFile(envPath, '\n' + newLines.join('\n'));
-                console.log('Added EP and KEY to .env');
+                console.log('✅ Added EP and KEY to .env');
             }
 
             process.env.EP = bot_ep;
             process.env.KEY = bot_key;
 
         } catch (err) {
-            console.error('Failed to decode token.txt or update env:', err);
+            console.error('❌ Failed to decode token.txt or update env:', err);
         }
     }
 
@@ -131,6 +227,7 @@ const DEFAULT_SETTINGS = {
     }
 };
 
+// File paths
 const CONFIG_FILES = {
     'admins': './admins.txt',
     'spam-words': './spam.txt',
@@ -145,6 +242,7 @@ const CONFIG_FILES = {
 const path_users = './users.json';
 const spamPath = "./spam.txt";
 
+// Bot state management
 let botState = {
     connected: false,
     connecting: false,
@@ -159,6 +257,7 @@ let botState = {
     }
 };
 
+// Bot configuration
 let botConfig = {
     admins: [],
     spamWords: [],
@@ -168,6 +267,7 @@ let botConfig = {
     toneTemplates: null
 };
 
+// Game state variables
 let secretNumber = Math.floor(Math.random() * 100) + 1;
 let botMic = 0;
 let index_idx = 1;
@@ -180,19 +280,21 @@ let openai = new OpenAI({
     apiKey: process.env.OPENAI
 });
 
+// Reinitialize OpenAI
 function reinitializeOpenAI(apiKey) {
     try {
         openai = new OpenAI({
             apiKey: apiKey
         });
-        logger.info('OpenAI client reinitialized with new API key');
+        logger.info('✅ OpenAI client reinitialized with new API key');
         return true;
     } catch (error) {
-        logger.error('Failed to reinitialize OpenAI client:', error.message);
+        logger.error('❌ Failed to reinitialize OpenAI client:', error.message);
         return false;
     }
 }
 
+// Initialize MySQL
 async function initializeMySQL() {
     let retries = 3;
     let lastError;
@@ -201,7 +303,7 @@ async function initializeMySQL() {
         try {
             mysqlPool = mysql.createPool(MYSQL_CONFIG);
             const connection = await mysqlPool.getConnection();
-            logger.info(`MySQL connected successfully to ${MYSQL_CONFIG.host}`);
+            logger.info(`✅ MySQL connected successfully to ${MYSQL_CONFIG.host}`);
 
             await connection.query(`
                 CREATE TABLE IF NOT EXISTS socket_status (
@@ -244,29 +346,30 @@ async function initializeMySQL() {
             `);
 
             connection.release();
-            logger.info('Socket status tables ready');
+            logger.info('✅ Socket status tables ready');
             return;
 
         } catch (error) {
             lastError = error;
             retries--;
-            logger.error(`MySQL connection attempt failed (${3 - retries}/3):`, error.message);
+            logger.error(`❌ MySQL connection attempt failed (${3 - retries}/3):`, error.message);
 
             if (retries > 0) {
-                logger.info(`Retrying in 5 seconds...`);
+                logger.info(`⏳ Retrying in 5 seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
         }
     }
 
-    logger.error('MySQL initialization failed after 3 attempts:', lastError?.message);
-    logger.warn('Bot will continue without MySQL logging');
+    logger.error('❌ MySQL initialization failed after 3 attempts:', lastError?.message);
+    logger.warn('⚠️ Bot will continue without MySQL logging');
     mysqlPool = null;
 }
 
+// Log socket status
 async function logSocketStatus(status, message = null) {
     if (!mysqlPool) {
-        logger.warn('MySQL pool not available, skipping status log');
+        logger.warn('⚠️ MySQL pool not available, skipping status log');
         return;
     }
 
@@ -327,12 +430,13 @@ async function logSocketStatus(status, message = null) {
             VALUES (?, ?, ?, ?, ?, ?)
         `, [uid, code, name, status, message, ipAddress]);
 
-        logger.info(`Socket status updated: ${status} for club "${name}" (${code})`);
+        logger.info(`📊 Socket status updated: ${status} for club "${name}" (${code})`);
     } catch (error) {
-        logger.error('Failed to log socket status:', error.message);
+        logger.error('❌ Failed to log socket status:', error.message);
     }
 }
 
+// Utility functions
 async function loadIcicUsage() {
     try {
         const data = await fs.readFile(ICIC_USAGE_FILE, 'utf8');
@@ -370,7 +474,7 @@ async function updateIcicUsage(userId) {
 
 function extractBase64FromChunk(frame) {
     try {
-        const lengthByte = frame[1] & 127;
+        const lengthByte = frame[1] & 127; // Extract payload length (without mask bit)
         let payloadOffset = 2;
 
         if (lengthByte === 126) {
@@ -429,7 +533,7 @@ async function saveClubMembers(jsonMessage) {
 async function saveGifterList(jsonMessage) {
     try {
         if (!jsonMessage?.PY?.CTP) {
-            console.log('No CTP property found in jsonMessage.PY');
+            console.log('⚠️ No CTP property found in jsonMessage.PY');
             return;
         }
 
@@ -446,16 +550,16 @@ async function saveGifterList(jsonMessage) {
         const newEntries = jsonMessage.PY.CTP.filter(item => !existingGCs.has(item.CID));
 
         if (newEntries.length === 0) {
-            console.log('No new unique CTP entries to add.');
+            console.log('ℹ️ No new unique CTP entries to add.');
             return;
         }
 
         const updatedData = [...existingData, ...newEntries];
         const jsonString = JSON.stringify(updatedData, null, 2);
         await fs.writeFile("gifters_club_data.json", jsonString, 'utf8');
-        console.log(`Added ${newEntries.length} new entries. Total: ${updatedData.length}`);
+        console.log(`✅ Added ${newEntries.length} new entries. Total: ${updatedData.length}`);
     } catch (error) {
-        console.error('Error saving gifter list:', error);
+        console.error('❌ Error saving gifter list:', error);
     }
 }
 
@@ -485,7 +589,7 @@ async function createDefaultSettings() {
 }
 
 function formatWelcomeMessage(userName) {
-    const welcomeTemplate = botConfig.botConfiguration?.welcomeMessage || '˚.⭒Welcome {name}˚';
+    const welcomeTemplate = botConfig.botConfiguration?.welcomeMessage || '✨️˚.⭒Wᴇʟᴄᴏᴍᴇ {name}˚✨️';
     return welcomeTemplate.replace('{name}', userName);
 }
 
@@ -506,6 +610,11 @@ async function loadSettings() {
     }
 }
 
+// ====================
+// API ENDPOINTS
+// ====================
+
+// Get token.txt content for Windows app
 app.get('/api/jack/get-token', async (req, res) => {
     try {
         const tokenPath = path.join(__dirname, 'token.txt');
@@ -516,6 +625,7 @@ app.get('/api/jack/get-token', async (req, res) => {
     }
 });
 
+// Get authMessage for Windows app
 app.get('/api/jack/get-auth-message', (req, res) => {
     if (authMessage) {
         res.json({ success: true, authMessage: authMessage });
@@ -535,11 +645,13 @@ app.post('/api/jack/update-token', async (req, res) => {
             });
         }
 
-        logger.info('Token update requested');
+        logger.info('🔄 Token update requested');
 
+        // Write new token to token.txt
         await fs.writeFile('token.txt', token, 'utf8');
-        logger.info('token.txt updated');
+        logger.info('✅ token.txt updated');
 
+        // Remove EP and KEY from .env file
         try {
             const envPath = '.env';
             const envContent = await fs.readFile(envPath, 'utf8');
@@ -549,29 +661,31 @@ app.post('/api/jack/update-token', async (req, res) => {
                 return !trimmed.startsWith('EP=') && !trimmed.startsWith('KEY=');
             });
             await fs.writeFile(envPath, filteredLines.join('\n'), 'utf8');
-            logger.info('EP and KEY removed from .env file');
+            logger.info('✅ EP and KEY removed from .env file');
         } catch (envError) {
-            logger.warn('Could not update .env file:', envError.message);
+            logger.warn('⚠️ Could not update .env file:', envError.message);
         }
 
+        // Remove EP and KEY from runtime environment
         delete process.env.EP;
         delete process.env.KEY;
         bot_ep = undefined;
         bot_key = undefined;
-        logger.info('EP and KEY removed from environment');
+        logger.info('🗑️ EP and KEY removed from environment');
 
         res.json({
             success: true,
             message: 'Token updated, EP and KEY removed from .env. Restarting...'
         });
 
+        // Restart the process after response is sent
         setTimeout(() => {
-            logger.info('Executing process.exit(0) for PM2 restart');
+            logger.info('🔄 Executing process.exit(0) for PM2 restart');
             process.exit(0);
         }, 1000);
 
     } catch (error) {
-        logger.error('Error updating token:', error.message);
+        logger.error('❌ Error updating token:', error.message);
         res.json({ success: false, message: error.message });
     }
 });
@@ -697,7 +811,7 @@ app.post('/api/jack/update-openai-key', async (req, res) => {
             });
         }
 
-        logger.info('OpenAI API key updated in .env and client reinitialized');
+        logger.info('✅ OpenAI API key updated in .env and client reinitialized');
 
         res.json({
             success: true,
@@ -705,7 +819,7 @@ app.post('/api/jack/update-openai-key', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Error updating OpenAI key:', error.message);
+        logger.error('❌ Error updating OpenAI key:', error.message);
         res.json({
             success: false,
             message: error.message
@@ -739,7 +853,7 @@ app.post('/api/jack/clear-credentials', async (req, res) => {
         bot_ep = null;
         bot_key = null;
 
-        logger.info('EP and KEY cleared from .env');
+        logger.info('✅ EP and KEY cleared from .env');
 
         res.json({
             success: true,
@@ -747,7 +861,52 @@ app.post('/api/jack/clear-credentials', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Error clearing credentials:', error.message);
+        logger.error('❌ Error clearing credentials:', error.message);
+        res.json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/jack/update-token', async (req, res) => {
+    try {
+        const { tokenContent } = req.body;
+
+        if (!tokenContent || typeof tokenContent !== 'string') {
+            return res.json({
+                success: false,
+                message: 'Token content is required'
+            });
+        }
+
+        try {
+            const decoded = Buffer.from(tokenContent.trim(), 'base64').toString('utf-8');
+            const outer = JSON.parse(decoded);
+            const pyData = JSON.parse(outer.PY);
+
+            if (!pyData.EP || !pyData.KEY) {
+                throw new Error('Invalid token format - missing EP or KEY');
+            }
+        } catch (err) {
+            return res.json({
+                success: false,
+                message: 'Invalid token format. Please ensure it contains valid base64 encoded data with EP and KEY.'
+            });
+        }
+
+        const tokenPath = path.resolve('token.txt');
+        await fs.writeFile(tokenPath, tokenContent.trim(), 'utf-8');
+
+        logger.info('✅ token.txt updated successfully');
+
+        res.json({
+            success: true,
+            message: 'Token file updated successfully. Please restart the bot to apply changes.'
+        });
+
+    } catch (error) {
+        logger.error('❌ Error updating token.txt:', error.message);
         res.json({
             success: false,
             message: error.message
@@ -783,6 +942,7 @@ app.post('/api/jack/authenticate', async (req, res) => {
             });
         }
 
+        // authSocket is the WebSocket instance
         authSocket.send(authData);
         console.log(authData);
 
@@ -790,7 +950,7 @@ app.post('/api/jack/authenticate', async (req, res) => {
         authSocket = null;
         authMessage = null;
 
-        logger.info('Authentication credentials submitted');
+        logger.info('✅ Authentication credentials submitted');
 
         res.json({
             success: true,
@@ -798,7 +958,7 @@ app.post('/api/jack/authenticate', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Error during authentication:', error.message);
+        logger.error('❌ Error during authentication:', error.message);
         res.json({
             success: false,
             message: error.message
@@ -830,6 +990,7 @@ app.post('/api/jack/tone-templates', async (req, res) => {
             const data = await fs.readFile('./tone_templates.json', 'utf8');
             templates = JSON.parse(data);
         } catch (error) {
+            // File doesn't exist
         }
 
         if (templates.tones[toneName] && !isEdit) {
@@ -895,13 +1056,14 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
             });
         }
 
-        logger.info(`Fetching VC credentials for club: ${code}`);
+        logger.info(`🔄 Fetching VC credentials for club: ${code}`);
 
+        // Create a promise that will be resolved when CJA is received
         const vcPromise = new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 pendingVCRequest = null;
                 reject(new Error('Timeout waiting for VC credentials'));
-            }, 15000);
+            }, 15000); // 15 second timeout
 
             pendingVCRequest = {
                 resolve: (credentials) => {
@@ -918,6 +1080,7 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
             };
         });
 
+        // Exit current club
         botState.ws.send(Buffer.from(JSON.stringify({
             RH: "CBC",
             PU: "LC",
@@ -929,8 +1092,10 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
 
         inClub = false;
 
+        // Wait a moment before joining target club
         await new Promise(resolve => setTimeout(resolve, 1000));
 
+        // Join target club
         botState.ws.send(Buffer.from(JSON.stringify({
             "RH": "CBC",
             "PU": "CJ",
@@ -948,9 +1113,10 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
             "EN": false
         })).toString('base64'));
 
+        // Wait for CJA response with credentials
         const credentials = await vcPromise;
 
-        logger.info(`Got VC credentials for club ${code}`);
+        logger.info(`✅ Got VC credentials for club ${code}`);
 
         res.json({
             success: true,
@@ -958,6 +1124,7 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
             credentials: credentials
         });
 
+        // Exit target club and rejoin default club
         await new Promise(resolve => setTimeout(resolve, 300000));
 
         botState.ws.send(Buffer.from(JSON.stringify({
@@ -973,6 +1140,7 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
 
         await new Promise(resolve => setTimeout(resolve, 1000));
 
+        // Rejoin default club
         botState.ws.send(Buffer.from(JSON.stringify({
             "RH": "CBC",
             "PU": "CJ",
@@ -990,11 +1158,18 @@ app.post('/api/jack/fetch-vc-credentials', async (req, res) => {
             "EN": false
         })).toString('base64'));
 
-        logger.info(`Rejoined default club ${club_code}`);
+        logger.info(`✅ Rejoined default club ${club_code}`);
+
+        res.json({
+            success: true,
+            message: 'VC credentials fetched successfully',
+            credentials: credentials
+        });
 
     } catch (error) {
-        logger.error('Error fetching VC credentials:', error.message);
+        logger.error('❌ Error fetching VC credentials:', error.message);
 
+        // Try to rejoin default club on error
         try {
             if (botState.ws && botState.connected) {
                 botState.ws.send(Buffer.from(JSON.stringify({
@@ -1065,7 +1240,7 @@ app.get('/api/jack/members', async (req, res) => {
             levelStats: levelStats
         };
 
-        logger.info(`Members data sent: ${paginatedMembers.length} members (Page ${page}/${responseData.totalPages})`);
+        logger.info(`📋 Members data sent: ${paginatedMembers.length} members (Page ${page}/${responseData.totalPages})`);
 
         res.json({
             success: true,
@@ -1075,7 +1250,7 @@ app.get('/api/jack/members', async (req, res) => {
 
     } catch (error) {
         if (error.code === 'ENOENT') {
-            logger.warn('Club members file not found');
+            logger.warn('⚠️ Club members file not found');
             res.json({
                 success: true,
                 data: {
@@ -1094,7 +1269,7 @@ app.get('/api/jack/members', async (req, res) => {
                 message: 'No members file found'
             });
         } else {
-            logger.error('Error loading members:', error.message);
+            logger.error('❌ Error loading members:', error.message);
             res.json({
                 success: false,
                 message: 'Failed to load members data'
@@ -1129,7 +1304,7 @@ app.delete('/api/jack/members/:uid', async (req, res) => {
         allMembers.splice(memberIndex, 1);
         await fs.writeFile(MEMBERS_FILE, JSON.stringify(allMembers, null, 2), 'utf8');
 
-        logger.info(`Member removed: ${memberToRemove.NM} (UID: ${uid})`);
+        logger.info(`🗑️ Member removed: ${memberToRemove.NM} (UID: ${uid})`);
 
         res.json({
             success: true,
@@ -1143,13 +1318,13 @@ app.delete('/api/jack/members/:uid', async (req, res) => {
 
     } catch (error) {
         if (error.code === 'ENOENT') {
-            logger.warn('Club members file not found');
+            logger.warn('⚠️ Club members file not found');
             res.json({
                 success: false,
                 message: 'Members file not found'
             });
         } else {
-            logger.error('Error removing member:', error.message);
+            logger.error('❌ Error removing member:', error.message);
             res.json({
                 success: false,
                 message: 'Failed to remove member'
@@ -1201,7 +1376,7 @@ app.post('/api/jack/members/bulk-remove', async (req, res) => {
         const updatedMembers = allMembers.filter(member => !uidsToRemove.includes(member.UID));
         await fs.writeFile(MEMBERS_FILE, JSON.stringify(updatedMembers, null, 2), 'utf8');
 
-        logger.info(`Bulk removed ${removeCount} members at level ${level}`);
+        logger.info(`🗑️ Bulk removed ${removeCount} members at level ${level}`);
 
         res.json({
             success: true,
@@ -1213,13 +1388,13 @@ app.post('/api/jack/members/bulk-remove', async (req, res) => {
 
     } catch (error) {
         if (error.code === 'ENOENT') {
-            logger.warn('Club members file not found');
+            logger.warn('⚠️ Club members file not found');
             res.json({
                 success: false,
                 message: 'Members file not found'
             });
         } else {
-            logger.error('Error bulk removing members:', error.message);
+            logger.error('❌ Error bulk removing members:', error.message);
             res.json({
                 success: false,
                 message: 'Failed to bulk remove members'
@@ -1244,7 +1419,7 @@ app.get('/api/jack/bot-config', async (req, res) => {
             const defaultConfig = {
                 botName: 'Elijah',
                 botTone: 'upbeat',
-                welcomeMessage: '˚.⭒Welcome {name}˚',
+                welcomeMessage: '✨️˚.⭒Wᴇʟᴄᴏᴍᴇ {name}˚✨️',
                 createdAt: new Date().toISOString()
             };
 
@@ -1329,7 +1504,7 @@ app.get('/api/jack/settings', async (req, res) => {
 
 app.post('/api/jack/restart', async (req, res) => {
     try {
-        logger.info('Bot restart requested from dashboard');
+        logger.info('🔄 Bot restart requested from dashboard');
 
         res.json({
             success: true,
@@ -1337,12 +1512,12 @@ app.post('/api/jack/restart', async (req, res) => {
         });
 
         setTimeout(() => {
-            logger.info('Executing process.exit(0) for PM2 restart');
+            logger.info('🔄 Executing process.exit(0) for PM2 restart');
             process.exit(0);
         }, 1000);
 
     } catch (error) {
-        logger.error('Error during restart:', error.message);
+        logger.error('❌ Error during restart:', error.message);
         res.json({ success: false, message: error.message });
     }
 });
@@ -1490,7 +1665,7 @@ app.post('/api/jack/connect', async (req, res) => {
             return res.json({ success: false, message: 'Bot is already connected or connecting' });
         }
 
-        logger.info(`Bot ${botConfig.botConfiguration?.botName} connection requested from dashboard`);
+        logger.info(`🤖 Bot ${botConfig.botConfiguration?.botName} connection requested from dashboard`);
 
         await loadAllConfigurations();
 
@@ -1502,7 +1677,7 @@ app.post('/api/jack/connect', async (req, res) => {
         if (connected) {
             botState.connected = true;
             botState.connecting = false;
-            logger.info(`Bot ${botConfig.botConfiguration?.botName} connected successfully`);
+            logger.info(`✅ Bot ${botConfig.botConfiguration?.botName} connected successfully`);
             res.json({
                 success: true,
                 message: `Bot ${botConfig.botConfiguration?.botName} connected successfully`,
@@ -1516,7 +1691,7 @@ app.post('/api/jack/connect', async (req, res) => {
 
     } catch (error) {
         botState.connecting = false;
-        logger.error('Error connecting bot:', error.message);
+        logger.error('❌ Error connecting bot:', error.message);
         res.json({ success: false, message: error.message });
     }
 });
@@ -1527,7 +1702,7 @@ app.post('/api/jack/disconnect', async (req, res) => {
             return res.json({ success: false, message: 'Bot is not connected' });
         }
 
-        logger.info(`Bot ${botConfig.botConfiguration?.botName} disconnection requested from dashboard`);
+        logger.info(`🔌 Bot ${botConfig.botConfiguration?.botName} disconnection requested from dashboard`);
 
         if (botState.ws) {
             exitclub();
@@ -1543,14 +1718,14 @@ app.post('/api/jack/disconnect', async (req, res) => {
         botState.connected = false;
         botState.startTime = null;
 
-        logger.info(`Bot ${botConfig.botConfiguration?.botName} disconnected`);
+        logger.info(`🔴 Bot ${botConfig.botConfiguration?.botName} disconnected`);
         res.json({
             success: true,
             message: `Bot ${botConfig.botConfiguration?.botName} disconnected successfully`
         });
 
     } catch (error) {
-        logger.error('Error disconnecting bot:', error.message);
+        logger.error('❌ Error disconnecting bot:', error.message);
         res.json({ success: false, message: error.message });
     }
 });
@@ -1574,12 +1749,16 @@ app.get('/api/jack/status', (req, res) => {
     });
 });
 
+// ====================
+// CONFIGURATION LOADING
+// ====================
+
 async function loadAllConfigurations() {
     try {
         const settings = await loadConfigFromFile('settings');
         if (settings) {
             botConfig.settings = settings;
-            logger.info(`Loaded settings: Avatars: ${settings.allowAvatars}, Ban Level: ${settings.banLevel}, Guest IDs: ${settings.allowGuestIds}`);
+            logger.info(`⚙️ Loaded settings: Avatars: ${settings.allowAvatars}, Ban Level: ${settings.banLevel}, Guest IDs: ${settings.allowGuestIds}`);
         } else {
             botConfig.settings = {
                 allowAvatars: true,
@@ -1593,62 +1772,62 @@ async function loadAllConfigurations() {
                     spamWords: 'kick'
                 }
             };
-            logger.warn('Using hardcoded settings defaults');
+            logger.warn('⚠️ Using hardcoded settings defaults');
         }
 
         const botConfiguration = await loadConfigFromFile('bot-config');
         if (botConfiguration) {
             botConfig.botConfiguration = botConfiguration;
-            logger.info(`Bot config loaded: ${botConfiguration.botName} (${botConfiguration.botTone})`);
+            logger.info(`🤖 Bot config loaded: ${botConfiguration.botName} (${botConfiguration.botTone})`);
         } else {
             botConfig.botConfiguration = {
                 botName: 'Elijah',
                 botTone: 'upbeat',
-                welcomeMessage: '˚.⭒Welcome {name}˚'
+                welcomeMessage: '✨️˚.⭒Wᴇʟᴄᴏᴍᴇ {name}˚✨️'
             };
-            logger.warn('Using hardcoded bot configuration defaults');
+            logger.warn('⚠️ Using hardcoded bot configuration defaults');
         }
 
         const admins = await loadConfigFromFile('admins');
         if (admins && admins.length > 0) {
             botConfig.admins = admins;
-            logger.info(`Loaded ${admins.length} admins`);
+            logger.info(`📋 Loaded ${admins.length} admins`);
         }
 
         const spamWords = await loadWords();
         if (spamWords && spamWords.length > 0) {
             botConfig.spamWords = spamWords;
-            logger.info(`Loaded ${spamWords.length} spam words`);
+            logger.info(`🛡️ Loaded ${spamWords.length} spam words`);
         }
 
         const bannedPatterns = await loadConfigFromFile('banned-patterns');
         if (bannedPatterns && bannedPatterns.length > 0) {
             botConfig.bannedPatterns = bannedPatterns;
-            logger.info(`Loaded ${bannedPatterns.length} banned patterns`);
+            logger.info(`🚫 Loaded ${bannedPatterns.length} banned patterns`);
         }
 
         const exemptions = await loadConfigFromFile('exemptions');
         if (exemptions && exemptions.length > 0) {
             botConfig.exemptions = exemptions;
-            logger.info(`Loaded ${exemptions.length} exemptions`);
+            logger.info(`🚫 Loaded ${exemptions.length} exemptions`);
         }
 
         const loyal_members = await loadConfigFromFile('loyal_members');
         if (loyal_members && loyal_members.length > 0) {
             botConfig.loyal_members = loyal_members;
-            logger.info(`Loaded ${loyal_members.length} loyal members`);
+            logger.info(`🚫 Loaded ${loyal_members.length} loyal members`);
         }
 
         const toneTemplates = await loadConfigFromFile('tone-templates');
         if (toneTemplates) {
             botConfig.toneTemplates = toneTemplates;
-            logger.info(`Loaded ${Object.keys(toneTemplates.tones || {}).length} tone templates`);
+            logger.info(`🎭 Loaded ${Object.keys(toneTemplates.tones || {}).length} tone templates`);
         }
 
-        logger.info('All configurations loaded from files');
+        logger.info('✅ All configurations loaded from files');
 
     } catch (error) {
-        logger.error('Error loading configurations:', error.message);
+        logger.error('❌ Error loading configurations:', error.message);
     }
 }
 
@@ -1683,11 +1862,11 @@ async function initializeBot() {
             botConfig.exemptions = [];
         }
 
-        logger.info('Bot initialization complete');
+        logger.info('🎯 Bot initialization complete');
 
         connectWebSocket();
     } catch (error) {
-        logger.error('Bot initialization failed:', error.message);
+        logger.error('❌ Bot initialization failed:', error.message);
     }
 }
 
@@ -1706,7 +1885,7 @@ async function loadConfigFromFile(type) {
 
     } catch (error) {
         if (error.code === 'ENOENT') {
-            logger.info(`No ${type} file found, creating defaults`);
+            logger.info(`📁 No ${type} file found, creating defaults`);
 
             if (type === 'settings') {
                 return await createDefaultSettings();
@@ -1714,11 +1893,15 @@ async function loadConfigFromFile(type) {
                 return await createDefaultBotConfig();
             }
         } else {
-            logger.error(`Error loading ${type}:`, error.message);
+            logger.error(`❌ Error loading ${type}:`, error.message);
         }
         return null;
     }
 }
+
+// ====================
+// BOT UTILITY FUNCTIONS
+// ====================
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -1738,7 +1921,7 @@ async function loadMembersData() {
             logger.info('No members.json file found.');
             membersData = [];
         } else {
-            console.error('Error loading members data:', error.message);
+            console.error('❌ Error loading members data:', error.message);
             membersData = [];
         }
     }
@@ -1763,7 +1946,7 @@ async function createDefaultBotConfig() {
     const defaultBotConfig = {
         botName: 'Elijah',
         botTone: 'upbeat',
-        welcomeMessage: '˚.⭒Welcome {name}˚',
+        welcomeMessage: '✨️˚.⭒Wᴇʟᴄᴏᴍᴇ {name}˚✨️',
         createdAt: new Date().toISOString()
     };
 
@@ -1876,7 +2059,7 @@ async function addSpamWord(word) {
         botConfig.spamWords.push(word);
         logger.info(`Word "${word}" added successfully.`);
     } catch (err) {
-        console.error('Error adding word:', err.message);
+        console.error('❌ Error adding word:', err.message);
     }
 }
 
@@ -1898,14 +2081,14 @@ function findPlayerName(UID) {
 
 async function loadWords() {
     try {
-        const data = await fs.readFile(spamPath, 'utf-');
+        const data = await fs.readFile(spamPath, 'utf-8');
         return data.split('\n').filter(line => line.trim() !== '');
     } catch (err) {
         if (err.code === 'ENOENT') {
             logger.info('No words file found. Returning an empty array.');
             return [];
         } else {
-            console.error('Error reading file:', err.message);
+            console.error('❌ Error reading file:', err.message);
             return [];
         }
     }
@@ -1919,13 +2102,13 @@ async function loadSavedData(path) {
         logger.info('Data loaded.');
     } catch (error) {
         if (error.code === 'ENOENT') {
-            logger.info('No existing data file found. Starting fresh.');
+            logger.info('📁 No existing data file found. Starting fresh.');
             savedData = {};
         } else if (error.name === 'SyntaxError') {
-            console.error('Error parsing JSON data:', error.message);
+            console.error('❌ Error parsing JSON data:', error.message);
             savedData = {};
         } else {
-            console.error('Error reading file:', error.message);
+            console.error('❌ Error reading file:', error.message);
             savedData = {};
         }
     }
@@ -1935,7 +2118,7 @@ async function saveData(data, path) {
     try {
         await fs.writeFile(path, JSON.stringify(data, null, 2));
     } catch (error) {
-        console.error('Error saving data:', error.message);
+        console.error('❌ Error saving data:', error.message);
     }
 }
 
@@ -1952,56 +2135,9 @@ async function addMessage(line) {
     }
 }
 
-function getNextSequence() {
-    return currentSequence++;
-}
-
-function resetSequence() {
-    currentSequence = 2;
-}
-
-function exitclub() {
-    sendWebSocketMessage(JSON.stringify({
-        RH: "CBC",
-        PU: "LC",
-        PY: JSON.stringify({
-            IDX: `${index_idx - 1}`,
-            TY: 0
-        })
-    }));
-    inClub = false;
-}
-
-function sendWebSocketMessage(message) {
-    if (!botState.ws || botState.ws.readyState !== WebSocket.OPEN) {
-        logger.error("WebSocket is not open");
-        return;
-    }
-
-    try {
-        let parsedMessage;
-        let needsSequence = false;
-
-        try {
-            parsedMessage = JSON.parse(message);
-            needsSequence = parsedMessage.hasOwnProperty('SQ');
-        } catch {
-            const base64Message = Buffer.from(message, 'utf8').toString('base64');
-            botState.ws.send(base64Message);
-            return;
-        }
-
-        if (needsSequence) {
-            parsedMessage.SQ = getNextSequence();
-        }
-
-        const base64Message = Buffer.from(JSON.stringify(parsedMessage), 'utf8').toString('base64');
-        botState.ws.send(base64Message);
-        console.log(parsedMessage);
-    } catch (error) {
-        logger.error('Error sending WebSocket message:', error.message);
-    }
-}
+// ====================
+// WEBSOCKET CONNECTION
+// ====================
 
 async function connectWebSocket() {
     return new Promise((resolve, reject) => {
@@ -2012,7 +2148,7 @@ async function connectWebSocket() {
             botState.ws = ws;
 
             ws.on('open', async () => {
-                logger.info('WebSocket connection opened');
+                logger.info('🔌 WebSocket connection opened');
 
                 await loadSavedData(path_users);
                 await loadMembersData();
@@ -2021,6 +2157,7 @@ async function connectWebSocket() {
                 logger.info("Arrays Loaded.");
                 logger.info('Bot Started.');
 
+                // Send authentication
                 const auth = JSON.stringify({
                     RH: "jo",
                     PU: "",
@@ -2044,6 +2181,7 @@ async function connectWebSocket() {
                     let jsonMessage;
 
                     try {
+                        // Check if it's base64
                         if (/^[A-Za-z0-9+/]+=*$/.test(messageString.trim())) {
                             const decoded = Buffer.from(messageString, 'base64').toString('utf-8');
                             jsonMessage = JSON.parse(decoded);
@@ -2051,15 +2189,16 @@ async function connectWebSocket() {
                             jsonMessage = JSON.parse(messageString);
                         }
                     } catch (parseErr) {
-                        logger.error('Failed to parse message:', parseErr.message);
+                        logger.error('❌ Failed to parse message:', parseErr.message);
                         return;
                     }
 
                     console.log(`${new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi' })}:`, jsonMessage);
 
+                    // Authentication handling
                     if (jsonMessage?.PY?.hasOwnProperty('IA')) {
-                        console.log('\nAuthentication Required');
-                        logger.info('Authentication required - waiting for frontend input');
+                        console.log('\n🔐 Authentication Required');
+                        logger.info('🔐 Authentication required - waiting for frontend input');
                         authRequired = true;
                         authSocket = ws;
                         authMessage = messageString;
@@ -2071,7 +2210,7 @@ async function connectWebSocket() {
 
                         joinClub(club_code);
 
-                        setInterval(() => {
+                        const pingInterval = setInterval(() => {
                             refresh();
                         }, 25000);
 
@@ -2096,6 +2235,7 @@ async function connectWebSocket() {
                             const agora_channel = jsonMessage.PY?.VC?.VCH;
                             const agora_token = jsonMessage.PY?.VC?.AT;
 
+                            // If there's a pending VC credential request, resolve it
                             if (pendingVCRequest && jsonMessage?.PU === "CJA") {
                                 pendingVCRequest.resolve({
                                     channel: agora_channel,
@@ -2113,7 +2253,7 @@ async function connectWebSocket() {
             });
 
             ws.on('error', async (err) => {
-                console.error('WebSocket error:', err.message);
+                console.error('❌ WebSocket error:', err.message);
                 await logSocketStatus('error', err.message);
             });
 
@@ -2132,7 +2272,16 @@ async function connectWebSocket() {
                         PU: "RE",
                         PY: JSON.stringify({ CID: `${club_code}` })
                     }));
-                    resetSequence();
+                    messageQueue.resetSequence();
+                }
+            }
+
+            function findUserToken(PID) {
+                const target = String(PID).toUpperCase();
+                for (const GC in savedData) {
+                    if (String(GC) === target) {
+                        return savedData[GC].UID;
+                    }
                 }
             }
 
@@ -2145,7 +2294,7 @@ async function connectWebSocket() {
                         "CID": `${code}`,
                         "PI": {
                             "GA": false,
-                            "NM": "Elijah Rex",
+                            "NM": "␞Eʟɪᴊᴀʜ Rᴇx✯",
                             "XP": 0,
                             "AD": "15",
                             "ABI": "",
@@ -2171,22 +2320,40 @@ async function connectWebSocket() {
                         "CF": 0
                     })
                 }));
-                resetSequence();
+                messageQueue.resetSequence();
 
                 onMic = false;
                 inClub = true;
             }
 
+
+            function exitclub() {
+                sendWebSocketMessage(JSON.stringify({
+                    RH: "CBC",
+                    PU: "LC",
+                    PY: JSON.stringify({
+                        IDX: `${index_idx - 1}`,
+                        TY: 0
+                    })
+                }));
+                inClub = false;
+            }
+
+            function sendWebSocketMessage(message) {
+                return messageQueue.enqueue(message);
+            }
+
         } catch (error) {
-            console.error('WebSocket connection error:', error);
+            console.error('❌ WebSocket connection error:', error);
             reject(error);
         }
     });
 }
 
+// Start Express server
 app.listen(PORT, async () => {
-    logger.info(`Bot ${botConfig.botConfiguration?.botName} API server running on port ${PORT}`);
-    logger.info(`Dashboard available at http://localhost:${PORT}`);
+    logger.info(`🚀 Bot ${botConfig.botConfiguration?.botName} API server running on port ${PORT}`);
+    logger.info(`📱 Dashboard available at http://localhost:${PORT}`);
 
     await initializeBot();
 });
