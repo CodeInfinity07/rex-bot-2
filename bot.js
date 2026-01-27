@@ -804,6 +804,7 @@ const CONFIG_FILES = {
 const path_users = './users.json';
 const spamPath = "./spam.txt";
 const path_message_counter = './message_counter.json';
+const KICK_BAN_LOGS_FILE = './kick_ban_logs.json';
 
 // Bot state management
 let botState = {
@@ -3298,6 +3299,39 @@ app.get('/api/jack/spam-kicks', authMiddleware, async (req, res) => {
     }
 });
 
+// Kick/Ban Logs endpoints
+app.get('/api/jack/kick-ban-logs', async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        
+        const logs = await loadKickBanLogs();
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedLogs = logs.slice(startIndex, endIndex);
+        
+        res.json({
+            success: true,
+            data: paginatedLogs,
+            page,
+            limit,
+            total: logs.length,
+            hasMore: endIndex < logs.length
+        });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to load kick/ban logs' });
+    }
+});
+
+app.delete('/api/jack/kick-ban-logs', authMiddleware, async (req, res) => {
+    try {
+        await saveKickBanLogs([]);
+        res.json({ success: true, message: 'Kick/ban logs cleared' });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to clear kick/ban logs' });
+    }
+});
+
 // Clear spam kick logs (authenticated)
 app.delete('/api/jack/spam-kicks', authMiddleware, async (req, res) => {
     try {
@@ -4038,6 +4072,81 @@ async function logSpamKick(UID, message, matchedWord, actionType) {
     }
 }
 
+// Kick/Ban Logs
+async function loadKickBanLogs() {
+    try {
+        const data = await fs.readFile(KICK_BAN_LOGS_FILE, 'utf-8');
+        const parsed = JSON.parse(data);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed;
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return [];
+        }
+        return [];
+    }
+}
+
+async function saveKickBanLogs(logs) {
+    try {
+        await fs.writeFile(KICK_BAN_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf-8');
+    } catch (err) {
+        logger.error(`Failed to save kick/ban logs: ${err.message}`);
+    }
+}
+
+function getNameFromUID(UID) {
+    if (!UID) {
+        return 'Unknown';
+    }
+    if (UID === my_uid || UID === process.env.BOT_UID) {
+        return 'Bot';
+    }
+    for (const GC in savedData) {
+        if (savedData[GC].UID === UID) {
+            return savedData[GC].NM;
+        }
+    }
+    return 'Unknown';
+}
+
+async function logKickBanEvent(jsonMessage) {
+    try {
+        const logs = await loadKickBanLogs();
+        const isBan = jsonMessage.PY?.B === true;
+        const adminUID = jsonMessage.PY?.AID || '';
+        const userUID = jsonMessage.PY?.UID || '';
+        const clubId = jsonMessage.PY?.CID || '';
+        
+        const adminName = getNameFromUID(adminUID);
+        const userName = getNameFromUID(userUID);
+        
+        const logEntry = {
+            id: crypto.randomUUID(),
+            action: isBan ? 'ban' : 'kick',
+            adminName: adminName,
+            adminUID: adminUID,
+            userName: userName,
+            userUID: userUID,
+            clubId: clubId,
+            timestamp: new Date().toISOString()
+        };
+        
+        logs.unshift(logEntry);
+        
+        if (logs.length > 1000) {
+            logs.length = 1000;
+        }
+        
+        await saveKickBanLogs(logs);
+        logger.info(`📝 Logged ${logEntry.action}: ${userName} by ${adminName}`);
+    } catch (err) {
+        logger.error(`Failed to log kick/ban event: ${err.message}`);
+    }
+}
+
 async function loadWords() {
     try {
         const data = await fs.readFile(spamPath, 'utf-8');
@@ -4459,6 +4568,9 @@ async function connectWebSocket() {
                                 streamState.timestamp = Date.now();
                                 logger.info(`🔇 Bot kicked from mic - stream paused`);
                             }
+                            
+                            // Log kick/ban event (log all events, even if AID is missing)
+                            logKickBanEvent(jsonMessage);
                         }
 
                         if (jsonMessage?.PU === "CJA" || jsonMessage?.PU === "REA") {

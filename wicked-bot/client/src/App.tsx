@@ -25,6 +25,7 @@ import Music from "@/pages/music";
 import SpamKicks from "@/pages/spam-kicks";
 import Admins from "@/pages/admins";
 import Chat from "@/pages/chat";
+import KickBanLogs from "@/pages/kick-ban-logs";
 
 function ProtectedRoutes() {
   return (
@@ -45,6 +46,7 @@ function ProtectedRoutes() {
       <Route path="/spam-kicks" component={SpamKicks} />
       <Route path="/admins" component={Admins} />
       <Route path="/chat" component={Chat} />
+      <Route path="/kick-ban-logs" component={KickBanLogs} />
       <Route component={Overview} />
     </Switch>
   );
