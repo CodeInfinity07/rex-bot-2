@@ -25,13 +25,8 @@ export default function Protection() {
     queryKey: ["/api/jack/config/banned-patterns"],
   });
 
-  const { data: adminsData, isLoading: adminsLoading, isError: adminsError } = useQuery<ProtectionData>({
-    queryKey: ["/api/jack/config/admins"],
-  });
-
   const [spamWords, setSpamWords] = useState("");
   const [bannedPatterns, setBannedPatterns] = useState("");
-  const [admins, setAdmins] = useState("");
 
   useEffect(() => {
     if (spamWordsData?.data) {
@@ -44,12 +39,6 @@ export default function Protection() {
       setBannedPatterns(bannedPatternsData.data.join(", "));
     }
   }, [bannedPatternsData]);
-
-  useEffect(() => {
-    if (adminsData?.data) {
-      setAdmins(adminsData.data.join(", "));
-    }
-  }, [adminsData]);
 
   const saveSpamWordsMutation = useMutation({
     mutationFn: async (words: string[]) => {
@@ -91,26 +80,6 @@ export default function Protection() {
     },
   });
 
-  const saveAdminsMutation = useMutation({
-    mutationFn: async (adminList: string[]) => {
-      return await apiRequest("POST", "/api/jack/config/admins", { data: adminList });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/jack/config/admins"] });
-      toast({
-        title: "Success",
-        description: "Admins saved successfully",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to save admins",
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleSaveSpamWords = (e: React.FormEvent) => {
     e.preventDefault();
     const words = spamWords
@@ -129,20 +98,11 @@ export default function Protection() {
     saveBannedPatternsMutation.mutate(patterns);
   };
 
-  const handleSaveAdmins = (e: React.FormEvent) => {
-    e.preventDefault();
-    const adminList = admins
-      .split(",")
-      .map((a) => a.trim())
-      .filter((a) => a !== "");
-    saveAdminsMutation.mutate(adminList);
-  };
-
   const spamWordCount = spamWords
     .split("\n")
     .filter((w) => w.trim() !== "").length;
 
-  if (spamLoading || patternsLoading || adminsLoading) {
+  if (spamLoading || patternsLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -158,7 +118,7 @@ export default function Protection() {
     );
   }
 
-  if (spamError || patternsError || adminsError) {
+  if (spamError || patternsError) {
     return (
       <div className="space-y-6">
         <div>
@@ -245,33 +205,6 @@ export default function Protection() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Administrators</CardTitle>
-          <CardDescription>
-            Admin usernames (comma-separated)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSaveAdmins} className="space-y-4">
-            <Textarea
-              placeholder="Admin1, Admin2, Admin3"
-              value={admins}
-              onChange={(e) => setAdmins(e.target.value)}
-              className="min-h-[100px]"
-              data-testid="textarea-admins"
-            />
-            <Button
-              type="submit"
-              disabled={saveAdminsMutation.isPending}
-              data-testid="button-save-admins"
-            >
-              <Save className="mr-2 h-4 w-4" />
-              {saveAdminsMutation.isPending ? "Saving..." : "Save Admins"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
     </div>
   );
 }

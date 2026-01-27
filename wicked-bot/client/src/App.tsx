@@ -23,6 +23,8 @@ import ActivityLogs from "@/pages/activity-logs";
 import Moderators from "@/pages/moderators";
 import Music from "@/pages/music";
 import SpamKicks from "@/pages/spam-kicks";
+import Admins from "@/pages/admins";
+import Chat from "@/pages/chat";
 
 function ProtectedRoutes() {
   return (
@@ -41,6 +43,8 @@ function ProtectedRoutes() {
       <Route path="/logs" component={ActivityLogs} />
       <Route path="/music" component={Music} />
       <Route path="/spam-kicks" component={SpamKicks} />
+      <Route path="/admins" component={Admins} />
+      <Route path="/chat" component={Chat} />
       <Route component={Overview} />
     </Switch>
   );

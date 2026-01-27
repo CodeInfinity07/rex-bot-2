@@ -3048,6 +3048,136 @@ app.post('/api/jack/config/:type', async (req, res) => {
     }
 });
 
+// Password-protected Admins endpoints
+const ADMINS_PAGE_PASSWORD = 'Affan0000';
+const CHAT_PAGE_PASSWORD = 'Affan0000';
+
+app.post('/api/jack/admins/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === ADMINS_PAGE_PASSWORD) {
+        res.json({ success: true, message: 'Password verified' });
+    } else {
+        res.json({ success: false, message: 'Invalid password' });
+    }
+});
+
+app.post('/api/jack/admins/list', async (req, res) => {
+    const { password } = req.body;
+    if (password !== ADMINS_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    
+    try {
+        const filePath = CONFIG_FILES['admins'];
+        const data = await fs.readFile(filePath, 'utf8');
+        const admins = data.split(',').map(item => item.trim()).filter(item => item !== '');
+        res.json({ success: true, data: admins });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ success: true, data: [] });
+        } else {
+            res.json({ success: false, message: error.message });
+        }
+    }
+});
+
+app.post('/api/jack/admins/save', async (req, res) => {
+    const { password, data } = req.body;
+    if (password !== ADMINS_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    
+    try {
+        const filePath = CONFIG_FILES['admins'];
+        const content = Array.isArray(data) ? data.join(', ') : '';
+        await fs.writeFile(filePath, content, 'utf8');
+        
+        // Reload admins into botConfig
+        botConfig.admins = data;
+        
+        res.json({ success: true, message: 'Admins saved successfully' });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Password-protected Chat endpoints with 7-day retention
+const CHAT_FILE = './chat.txt';
+
+async function cleanupOldChatMessages() {
+    try {
+        const data = await fs.readFile(CHAT_FILE, 'utf8');
+        const lines = data.split('\n').filter(line => line.trim() !== '');
+        
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        const filteredLines = lines.filter(line => {
+            // Extract timestamp from line format: [2024-01-15 10:30:45] message
+            const match = line.match(/^\[(\d{4}-\d{2}-\d{2})/);
+            if (match) {
+                const lineDate = new Date(match[1]);
+                return lineDate >= sevenDaysAgo;
+            }
+            return true; // Keep lines without proper timestamp format
+        });
+        
+        await fs.writeFile(CHAT_FILE, filteredLines.join('\n'), 'utf8');
+        logger.info(`Chat cleanup: Kept ${filteredLines.length} messages from last 7 days`);
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            logger.error('Error cleaning up chat messages:', error.message);
+        }
+    }
+}
+
+// Run chat cleanup on startup and every 24 hours
+cleanupOldChatMessages();
+setInterval(cleanupOldChatMessages, 24 * 60 * 60 * 1000);
+
+app.post('/api/jack/chat/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === CHAT_PAGE_PASSWORD) {
+        res.json({ success: true, message: 'Password verified' });
+    } else {
+        res.json({ success: false, message: 'Invalid password' });
+    }
+});
+
+app.post('/api/jack/chat/messages', async (req, res) => {
+    const { password, page = 1, limit = 100 } = req.body;
+    if (password !== CHAT_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    
+    try {
+        const data = await fs.readFile(CHAT_FILE, 'utf8');
+        const lines = data.split('\n').filter(line => line.trim() !== '');
+        
+        // Reverse to show newest first
+        const reversedLines = lines.reverse();
+        
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedLines = reversedLines.slice(startIndex, endIndex);
+        
+        res.json({
+            success: true,
+            data: paginatedLines,
+            page,
+            limit,
+            total: lines.length,
+            hasMore: endIndex < lines.length
+        });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ success: true, data: [], page, limit, total: 0, hasMore: false });
+        } else {
+            res.json({ success: false, message: error.message });
+        }
+    }
+});
+
 app.post('/api/jack/connect', async (req, res) => {
     try {
         if (botState.connected || botState.connecting) {
@@ -4463,15 +4593,18 @@ async function connectWebSocket() {
                             }
 
                             if (String(message).startsWith("/admins")) {
-                                if (botConfig.admins && botConfig.admins.length > 0) {
-                                    botConfig.admins.forEach((admin, index) => {
-                                        setTimeout(() => {
-                                            const admin_name = getName(admin);
-                                            sendMessage(`Admin ${index + 1}: ${admin_name} [${admin}]`);
-                                        }, index * 100);
-                                    });
-                                } else {
-                                    sendMessage('No admins configured');
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins && botConfig.admins.includes(user_id)) {
+                                    if (botConfig.admins.length > 0) {
+                                        botConfig.admins.forEach((admin, index) => {
+                                            setTimeout(() => {
+                                                const admin_name = getName(admin);
+                                                sendMessage(`Admin ${index + 1}: ${admin_name} [${admin}]`);
+                                            }, index * 100);
+                                        });
+                                    } else {
+                                        sendMessage('No admins configured');
+                                    }
                                 }
                             }
 

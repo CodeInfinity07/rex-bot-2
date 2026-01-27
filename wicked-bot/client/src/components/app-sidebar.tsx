@@ -1,4 +1,4 @@
-import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog, Music2, AlertTriangle } from "lucide-react";
+import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog, Music2, AlertTriangle, MessageSquare, UserPlus } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
@@ -30,6 +30,8 @@ const menuItems = [
 
 const ownerOnlyItems = [
   { title: "Moderators", url: "/moderators", icon: UserCog },
+  { title: "Admins", url: "/admins", icon: UserPlus },
+  { title: "Chat History", url: "/chat", icon: MessageSquare },
   { title: "Activity Logs", url: "/logs", icon: Activity },
   { title: "Spam Kicks", url: "/spam-kicks", icon: AlertTriangle },
 ];
