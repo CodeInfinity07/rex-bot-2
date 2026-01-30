@@ -192,12 +192,12 @@ export default function StreamPage() {
           setCurrentIndex(nextIdx);
           playAudio(nextIdx, isConnectedRef.current && !!clientRef.current);
         },
-        onloaderror: (id: number, error: unknown) => {
+        onloaderror: (id, error) => {
           console.error('[Howler] Load error:', error);
           toast({ title: "Load error", description: "Could not load audio file", variant: "destructive" });
           isProcessingRef.current = false;
         },
-        onplayerror: (id: number, error: unknown) => {
+        onplayerror: (id, error) => {
           console.error('[Howler] Play error:', error);
           howl.once('unlock', () => {
             howl.play();
@@ -207,9 +207,11 @@ export default function StreamPage() {
 
       howlRef.current = howl;
 
+      // Start playback first - Howler creates audio element on play()
       howl.play();
       
       if (streamToAgora && clientRef.current) {
+        // Wait for Howler to create the audio element
         await new Promise(r => setTimeout(r, 100));
         
         const audioContext = await getOrCreateAudioContext();
@@ -218,6 +220,7 @@ export default function StreamPage() {
         const audioNode = howl._sounds[0]?._node as HTMLAudioElement | undefined;
         
         if (audioNode && !connectedNodesRef.current.has(audioNode)) {
+          // Unpublish and cleanup old track first
           if (audioTrackRef.current) {
             try {
               await clientRef.current!.unpublish(audioTrackRef.current);
@@ -229,6 +232,7 @@ export default function StreamPage() {
             audioTrackRef.current = null;
           }
           
+          // Disconnect old source
           if (mediaSourceRef.current) {
             try {
               mediaSourceRef.current.disconnect();
@@ -236,9 +240,11 @@ export default function StreamPage() {
             mediaSourceRef.current = null;
           }
           
+          // Create fresh destination for this song
           const destination = audioContext.createMediaStreamDestination();
           destinationRef.current = destination;
           
+          // Create source and connect
           const source = audioContext.createMediaElementSource(audioNode);
           mediaSourceRef.current = source;
           connectedNodesRef.current.add(audioNode);
@@ -246,6 +252,7 @@ export default function StreamPage() {
           source.connect(destination);
           source.connect(audioContext.destination);
           
+          // Create and publish new Agora track
           const track = AgoraRTC.createCustomAudioTrack({
             mediaStreamTrack: destination.stream.getAudioTracks()[0]
           });
