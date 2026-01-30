@@ -4761,7 +4761,11 @@ async function connectWebSocket() {
                                 saveData(savedData, path_users);
                             }
 
-                            addMessage(`${user_name}: ${message}`);
+                            // Add timestamp in PKT (UTC+5)
+                            const now = new Date();
+                            const pktTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+                            const timestamp = pktTime.toISOString().replace('T', ' ').substring(0, 19);
+                            addMessage(`[${timestamp}] ${user_name}: ${message}`);
 
                             // Bot commands handling
                             if (String(message).startsWith("/mic")) {
