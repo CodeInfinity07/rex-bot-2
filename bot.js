@@ -3424,6 +3424,76 @@ app.delete('/api/jack/songs/:id', authMiddleware, async (req, res) => {
     }
 });
 
+// YouTube audio proxy endpoint - streams YouTube audio with CORS headers
+app.get('/api/jack/youtube-proxy', async (req, res) => {
+    try {
+        const { url } = req.query;
+        
+        if (!url) {
+            return res.status(400).json({ success: false, message: 'URL parameter required' });
+        }
+        
+        // Set CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+        
+        // Handle preflight
+        if (req.method === 'OPTIONS') {
+            return res.status(200).end();
+        }
+        
+        // Forward range header if present
+        const headers = {};
+        if (req.headers.range) {
+            headers['Range'] = req.headers.range;
+        }
+        
+        const response = await axios({
+            method: 'get',
+            url: decodeURIComponent(url),
+            responseType: 'stream',
+            headers,
+            timeout: 30000,
+            maxRedirects: 5
+        });
+        
+        // Forward relevant headers
+        if (response.headers['content-type']) {
+            res.setHeader('Content-Type', response.headers['content-type']);
+        }
+        if (response.headers['content-length']) {
+            res.setHeader('Content-Length', response.headers['content-length']);
+        }
+        if (response.headers['content-range']) {
+            res.setHeader('Content-Range', response.headers['content-range']);
+        }
+        if (response.headers['accept-ranges']) {
+            res.setHeader('Accept-Ranges', response.headers['accept-ranges']);
+        }
+        
+        // Set status (206 for partial content)
+        res.status(response.status);
+        
+        // Pipe the audio stream
+        response.data.pipe(res);
+        
+        response.data.on('error', (err) => {
+            console.error('[YouTube Proxy] Stream error:', err.message);
+            if (!res.headersSent) {
+                res.status(500).json({ success: false, message: 'Stream error' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('[YouTube Proxy] Error:', error.message);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Proxy error: ' + error.message });
+        }
+    }
+});
+
 // Serve song files - PUBLIC for stream listeners
 app.get('/api/jack/songs/file/:filename', async (req, res) => {
     try {
@@ -5160,10 +5230,13 @@ async function connectWebSocket() {
                                                 return;
                                             }
                                             
-                                            // Broadcast YouTube URL to stream clients
+                                            // Create proxied URL to avoid CORS issues
+                                            const proxyUrl = `https://wickedrex-143.botpanels.live/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
+                                            
+                                            // Broadcast proxied YouTube URL to stream clients
                                             broadcastStreamEvent({ 
                                                 action: 'youtube', 
-                                                url: audioUrl,
+                                                url: proxyUrl,
                                                 songName: songName,
                                                 timestamp: Date.now()
                                             });
