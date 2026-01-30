@@ -398,18 +398,30 @@ export default function StreamPage() {
         case 'youtube': {
           if (data.url) {
             console.log('[YouTube] Playing URL:', data.url);
+            console.log('[YouTube] Current volume:', volume, 'isMuted:', isMuted);
             
             cleanupHowl();
+            
+            // Create audio element directly for better control
+            const audioEl = new Audio();
+            audioEl.crossOrigin = 'anonymous';
+            audioEl.src = data.url;
+            audioEl.volume = isMuted ? 0 : volume / 100;
             
             const howl = new Howl({
               src: [data.url],
               html5: true,
-              volume: isMuted ? 0 : volume / 100,
-              format: ['webm', 'opus', 'm4a', 'mp3'],
+              volume: 1, // Start at full volume, we'll control via audio element
+              format: ['webm', 'opus', 'm4a', 'mp3', 'ogg'],
               onload: () => {
+                console.log('[YouTube] Audio loaded, duration:', howl.duration());
                 setDuration(howl.duration());
+                // Ensure volume is set after load
+                howl.volume(isMuted ? 0 : volume / 100);
+                console.log('[YouTube] Volume set to:', howl.volume());
               },
               onplay: () => {
+                console.log('[YouTube] Playing started');
                 setIsPlaying(true);
                 progressIntervalRef.current = setInterval(() => {
                   setCurrentTime(howl.seek() as number);
@@ -441,13 +453,24 @@ export default function StreamPage() {
               },
               onplayerror: (id: number, error: unknown) => {
                 console.error('[Howler] YouTube play error:', error);
+                // Try to unlock and play
                 howl.once('unlock', () => {
+                  console.log('[YouTube] Audio unlocked, attempting play');
                   howl.play();
                 });
               }
             });
 
             howlRef.current = howl;
+            
+            // Force volume after creation
+            setTimeout(() => {
+              if (howlRef.current) {
+                howlRef.current.volume(isMuted ? 0 : volume / 100);
+                console.log('[YouTube] Delayed volume set to:', howlRef.current.volume());
+              }
+            }, 500);
+            
             howl.play();
             
             if (isConnectedRef.current && clientRef.current) {
