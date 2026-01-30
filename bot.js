@@ -314,7 +314,7 @@ async function downloadYouTubeAsMP3(youtubeUrl) {
                 youtubeUrl
             ];
             
-            const ytdlp = spawn('yt-dlp', args);
+            const ytdlp = spawn('/root/.local/bin/yt-dlp', args);
             let videoTitle = '';
             let errorOutput = '';
             
@@ -5200,7 +5200,7 @@ async function connectWebSocket() {
                                             `ytsearch:${songName}`
                                         ];
                                         
-                                        const ytProcess = spawn('yt-dlp', ytArgs, { timeout: 30000 });
+                                        const ytProcess = spawn('/root/.local/bin/yt-dlp', ytArgs, { timeout: 30000 });
                                         let stdout = '';
                                         let stderr = '';
                                         
