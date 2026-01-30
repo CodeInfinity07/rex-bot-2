@@ -5091,6 +5091,98 @@ async function connectWebSocket() {
                                 }
                             }
 
+                            // YouTube song: /song <song_name>
+                            else if (String(message).startsWith("/song")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        // Check if bot is on mic, if not join first
+                                        if (!onMic) {
+                                            joinAdminMic(1);
+                                            let waited = 0;
+                                            while (!onMic && waited < 3000) {
+                                                await new Promise(resolve => setTimeout(resolve, 200));
+                                                waited += 200;
+                                            }
+                                            if (!onMic) {
+                                                sendMessage(`❌ I am not on mic currently.`);
+                                                return;
+                                            }
+                                        }
+                                        
+                                        const songName = String(message).replace(/^\/song\s*/, '').trim();
+                                        
+                                        if (!songName) {
+                                            sendMessage(`❌ Usage: /song <song name>`);
+                                            return;
+                                        }
+                                        
+                                        sendMessage(`🔍 Searching: ${songName}...`);
+                                        logger.info(`🎵 Admin ${user_id} triggered /song: ${songName}`);
+                                        
+                                        // Use yt-dlp to get audio URL (spawn with array args to prevent command injection)
+                                        const { spawn } = require('child_process');
+                                        const ytArgs = [
+                                            '--cookies', 'cookies.txt',
+                                            '--js-runtimes', 'node',
+                                            '-f', 'bestaudio',
+                                            '-g',
+                                            `ytsearch:${songName}`
+                                        ];
+                                        
+                                        const ytProcess = spawn('yt-dlp', ytArgs, { timeout: 30000 });
+                                        let stdout = '';
+                                        let stderr = '';
+                                        
+                                        ytProcess.stdout.on('data', (data) => {
+                                            stdout += data.toString();
+                                        });
+                                        
+                                        ytProcess.stderr.on('data', (data) => {
+                                            stderr += data.toString();
+                                        });
+                                        
+                                        ytProcess.on('error', (error) => {
+                                            sendMessage(`❌ Failed to run yt-dlp: ${error.message}`);
+                                            logger.error(`yt-dlp spawn error: ${error.message}`);
+                                        });
+                                        
+                                        ytProcess.on('close', (code) => {
+                                            if (code !== 0) {
+                                                sendMessage(`❌ Failed to find song`);
+                                                logger.error(`yt-dlp exited with code ${code}: ${stderr}`);
+                                                return;
+                                            }
+                                            
+                                            const audioUrl = stdout.trim();
+                                            if (!audioUrl) {
+                                                sendMessage(`❌ No results found for: ${songName}`);
+                                                return;
+                                            }
+                                            
+                                            // Broadcast YouTube URL to stream clients
+                                            broadcastStreamEvent({ 
+                                                action: 'youtube', 
+                                                url: audioUrl,
+                                                songName: songName,
+                                                timestamp: Date.now()
+                                            });
+                                            
+                                            streamState.status = 'playing';
+                                            streamState.timestamp = Date.now();
+                                            
+                                            sendMessage(`▶️ Now playing: ${songName}`);
+                                            logger.info(`🎵 Playing YouTube audio: ${songName}`);
+                                        });
+                                    } catch (err) {
+                                        sendMessage("Error processing song command.");
+                                        logger.error(`/song error: ${err.message}`);
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
                             // Stream control: /next
                             else if (String(message).startsWith("/next")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);

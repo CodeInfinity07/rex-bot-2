@@ -395,6 +395,119 @@ export default function StreamPage() {
           toast({ title: "Remote Stop", description: "Admin stopped the stream" });
           break;
         
+        case 'youtube': {
+          if (data.url) {
+            console.log('[YouTube] Playing URL:', data.url);
+            
+            cleanupHowl();
+            
+            const howl = new Howl({
+              src: [data.url],
+              html5: true,
+              volume: isMuted ? 0 : volume / 100,
+              format: ['webm', 'opus', 'm4a', 'mp3'],
+              onload: () => {
+                setDuration(howl.duration());
+              },
+              onplay: () => {
+                setIsPlaying(true);
+                progressIntervalRef.current = setInterval(() => {
+                  setCurrentTime(howl.seek() as number);
+                }, 250);
+              },
+              onpause: () => {
+                setIsPlaying(false);
+                if (progressIntervalRef.current) {
+                  clearInterval(progressIntervalRef.current);
+                }
+              },
+              onstop: () => {
+                setIsPlaying(false);
+                setCurrentTime(0);
+                if (progressIntervalRef.current) {
+                  clearInterval(progressIntervalRef.current);
+                }
+              },
+              onend: () => {
+                if (progressIntervalRef.current) {
+                  clearInterval(progressIntervalRef.current);
+                }
+                setIsPlaying(false);
+                setCurrentTime(0);
+              },
+              onloaderror: (id: number, error: unknown) => {
+                console.error('[Howler] YouTube load error:', error);
+                toast({ title: "Load error", description: "Could not load YouTube audio", variant: "destructive" });
+              },
+              onplayerror: (id: number, error: unknown) => {
+                console.error('[Howler] YouTube play error:', error);
+                howl.once('unlock', () => {
+                  howl.play();
+                });
+              }
+            });
+
+            howlRef.current = howl;
+            howl.play();
+            
+            if (isConnectedRef.current && clientRef.current) {
+              (async () => {
+                try {
+                  await new Promise(r => setTimeout(r, 100));
+                  
+                  const audioContext = await getOrCreateAudioContext();
+                  
+                  // @ts-ignore - Access internal audio node from Howler
+                  const audioNode = howl._sounds[0]?._node as HTMLAudioElement | undefined;
+                  
+                  if (audioNode && !connectedNodesRef.current.has(audioNode)) {
+                    if (audioTrackRef.current) {
+                      try {
+                        await clientRef.current!.unpublish(audioTrackRef.current);
+                        audioTrackRef.current.stop();
+                        audioTrackRef.current.close();
+                      } catch (e) {
+                        console.log('[Agora] Track cleanup:', e);
+                      }
+                      audioTrackRef.current = null;
+                    }
+                    
+                    if (mediaSourceRef.current) {
+                      try {
+                        mediaSourceRef.current.disconnect();
+                      } catch {}
+                      mediaSourceRef.current = null;
+                    }
+                    
+                    const destination = audioContext.createMediaStreamDestination();
+                    destinationRef.current = destination;
+                    
+                    const source = audioContext.createMediaElementSource(audioNode);
+                    mediaSourceRef.current = source;
+                    connectedNodesRef.current.add(audioNode);
+                    
+                    source.connect(destination);
+                    source.connect(audioContext.destination);
+                    
+                    const track = AgoraRTC.createCustomAudioTrack({
+                      mediaStreamTrack: destination.stream.getAudioTracks()[0]
+                    });
+                    audioTrackRef.current = track;
+                    await clientRef.current!.publish(track);
+                    
+                    console.log(`[Agora] Published YouTube track`);
+                  }
+                } catch (err) {
+                  console.error('[Agora] YouTube stream error:', err);
+                }
+              })();
+            }
+            
+            toast({ title: "YouTube", description: data.songName || "Playing YouTube audio" });
+          }
+          break;
+        }
+        
         case 'reconnect':
           toast({ title: "Reconnecting", description: "Admin triggered Agora reconnect..." });
           await disconnect();
@@ -436,7 +549,7 @@ export default function StreamPage() {
     } catch (err) {
       console.error('Error parsing SSE event:', err);
     }
-  }, [playAudio, pauseSong, disconnect, buildApiUrl, refetchConfig, toast]);
+  }, [playAudio, pauseSong, disconnect, buildApiUrl, refetchConfig, toast, cleanupHowl, getOrCreateAudioContext, volume, isMuted]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
