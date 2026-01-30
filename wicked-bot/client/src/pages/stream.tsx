@@ -473,60 +473,19 @@ export default function StreamPage() {
             
             howl.play();
             
+            // NOTE: YouTube audio cannot be routed through Web Audio API due to CORS restrictions
+            // The audio will play locally through HTML5 audio element directly
+            // For Agora streaming of YouTube audio, we would need to proxy through VPS
             if (isConnectedRef.current && clientRef.current) {
-              (async () => {
-                try {
-                  await new Promise(r => setTimeout(r, 100));
-                  
-                  const audioContext = await getOrCreateAudioContext();
-                  
-                  // @ts-ignore - Access internal audio node from Howler
-                  const audioNode = howl._sounds[0]?._node as HTMLAudioElement | undefined;
-                  
-                  if (audioNode && !connectedNodesRef.current.has(audioNode)) {
-                    if (audioTrackRef.current) {
-                      try {
-                        await clientRef.current!.unpublish(audioTrackRef.current);
-                        audioTrackRef.current.stop();
-                        audioTrackRef.current.close();
-                      } catch (e) {
-                        console.log('[Agora] Track cleanup:', e);
-                      }
-                      audioTrackRef.current = null;
-                    }
-                    
-                    if (mediaSourceRef.current) {
-                      try {
-                        mediaSourceRef.current.disconnect();
-                      } catch {}
-                      mediaSourceRef.current = null;
-                    }
-                    
-                    const destination = audioContext.createMediaStreamDestination();
-                    destinationRef.current = destination;
-                    
-                    const source = audioContext.createMediaElementSource(audioNode);
-                    mediaSourceRef.current = source;
-                    connectedNodesRef.current.add(audioNode);
-                    
-                    source.connect(destination);
-                    source.connect(audioContext.destination);
-                    
-                    const track = AgoraRTC.createCustomAudioTrack({
-                      mediaStreamTrack: destination.stream.getAudioTracks()[0]
-                    });
-                    audioTrackRef.current = track;
-                    await clientRef.current!.publish(track);
-                    
-                    console.log(`[Agora] Published YouTube track`);
-                  }
-                } catch (err) {
-                  console.error('[Agora] YouTube stream error:', err);
-                }
-              })();
+              console.log('[YouTube] Agora connected but skipping Web Audio routing due to CORS');
+              toast({ 
+                title: "YouTube Audio", 
+                description: `Playing "${data.songName}" locally (CORS prevents Agora streaming)`,
+                variant: "default"
+              });
+            } else {
+              toast({ title: "YouTube", description: data.songName || "Playing YouTube audio" });
             }
-            
-            toast({ title: "YouTube", description: data.songName || "Playing YouTube audio" });
           }
           break;
         }
