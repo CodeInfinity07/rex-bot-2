@@ -4492,7 +4492,7 @@ async function connectWebSocket() {
                         joinClub(club_code);
 
                         const refreshInterval = setInterval(() => {
-                            refresh();
+                            sendWebSocketMessage(JSON.stringify({ RH: 'ha', PU: '', PY: {} }));
                         }, 25000);
                         wsIntervals.push(refreshInterval);
                     }
