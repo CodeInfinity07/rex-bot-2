@@ -805,6 +805,46 @@ const path_users = './users.json';
 const spamPath = "./spam.txt";
 const path_message_counter = './message_counter.json';
 const KICK_BAN_LOGS_FILE = './kick_ban_logs.json';
+const BLACKLIST_FILE = './blacklist.txt';
+const HITLIST_FILE = './hitlist.txt';
+
+// Load blacklist (comma-separated player IDs to ban)
+async function loadBlacklist() {
+    try {
+        const data = await fs.readFile(BLACKLIST_FILE, 'utf8');
+        return data.split(',').map(id => id.trim()).filter(id => id);
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            await fs.writeFile(BLACKLIST_FILE, '');
+        }
+        return [];
+    }
+}
+
+// Load hitlist (comma-separated player IDs to kick)
+async function loadHitlist() {
+    try {
+        const data = await fs.readFile(HITLIST_FILE, 'utf8');
+        return data.split(',').map(id => id.trim()).filter(id => id);
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            await fs.writeFile(HITLIST_FILE, '');
+        }
+        return [];
+    }
+}
+
+// Check if player is blacklisted (returns true if should ban)
+async function isBlacklisted(gc) {
+    const blacklist = await loadBlacklist();
+    return blacklist.includes(String(gc));
+}
+
+// Check if player is on hitlist (returns true if should kick)
+async function isOnHitlist(gc) {
+    const hitlist = await loadHitlist();
+    return hitlist.includes(String(gc));
+}
 
 // Bot state management
 let botState = {
@@ -4561,6 +4601,22 @@ async function connectWebSocket() {
                         if (jsonMessage.PY && jsonMessage.PY.GC && jsonMessage.PY.NM) {
                             const { GC, NM, UID, SNUID, AV } = jsonMessage.PY;
                             checkLevel(UID);
+
+                            // Check blacklist first (ban immediately)
+                            if (await isBlacklisted(GC)) {
+                                logger.info(`🚫 Blacklisted user detected: ${NM} (GC: ${GC})`);
+                                banUser(UID);
+                                sendMessage(`🚫 ${NM} is blacklisted and has been banned.`);
+                                return;
+                            }
+
+                            // Check hitlist (kick immediately)
+                            if (await isOnHitlist(GC)) {
+                                logger.info(`👢 Hitlist user detected: ${NM} (GC: ${GC})`);
+                                kickUser(UID);
+                                sendMessage(`👢 ${NM} is on hitlist and has been kicked.`);
+                                return;
+                            }
 
                             const isExempt = botConfig.exemptions?.includes(GC) || false;
 
