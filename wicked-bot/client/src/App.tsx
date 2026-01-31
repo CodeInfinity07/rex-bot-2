@@ -26,6 +26,7 @@ import SpamKicks from "@/pages/spam-kicks";
 import Admins from "@/pages/admins";
 import Chat from "@/pages/chat";
 import KickBanLogs from "@/pages/kick-ban-logs";
+import BlacklistHitlist from "@/pages/blacklist";
 
 function ProtectedRoutes() {
   return (
@@ -47,6 +48,7 @@ function ProtectedRoutes() {
       <Route path="/admins" component={Admins} />
       <Route path="/chat" component={Chat} />
       <Route path="/kick-ban-logs" component={KickBanLogs} />
+      <Route path="/blacklist" component={BlacklistHitlist} />
       <Route component={Overview} />
     </Switch>
   );

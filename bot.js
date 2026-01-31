@@ -798,7 +798,9 @@ const CONFIG_FILES = {
     'loyal_members': './loyal_members.txt',
     'settings': './settings.json',
     'bot-config': './bot_configuration.json',
-    'tone-templates': './tone_templates.json'
+    'tone-templates': './tone_templates.json',
+    'blacklist': './blacklist.txt',
+    'hitlist': './hitlist.txt'
 };
 
 const path_users = './users.json';
@@ -3137,6 +3139,94 @@ app.post('/api/jack/admins/save', async (req, res) => {
         botConfig.admins = data;
         
         res.json({ success: true, message: 'Admins saved successfully' });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Password-protected Blacklist endpoints
+app.post('/api/jack/blacklist/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === ADMINS_PAGE_PASSWORD) {
+        res.json({ success: true });
+    } else {
+        res.json({ success: false, message: 'Invalid password' });
+    }
+});
+
+app.post('/api/jack/blacklist/list', async (req, res) => {
+    const { password } = req.body;
+    if (password !== ADMINS_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    try {
+        const filePath = CONFIG_FILES['blacklist'];
+        const data = await fs.readFile(filePath, 'utf8');
+        const blacklist = data.split(',').map(item => item.trim()).filter(item => item !== '');
+        res.json({ success: true, data: blacklist });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ success: true, data: [] });
+        } else {
+            res.json({ success: false, message: error.message });
+        }
+    }
+});
+
+app.post('/api/jack/blacklist/save', async (req, res) => {
+    const { password, data } = req.body;
+    if (password !== ADMINS_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    try {
+        const filePath = CONFIG_FILES['blacklist'];
+        const content = Array.isArray(data) ? data.join(', ') : '';
+        await fs.writeFile(filePath, content, 'utf8');
+        res.json({ success: true, message: 'Blacklist saved successfully' });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Password-protected Hitlist endpoints
+app.post('/api/jack/hitlist/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === ADMINS_PAGE_PASSWORD) {
+        res.json({ success: true });
+    } else {
+        res.json({ success: false, message: 'Invalid password' });
+    }
+});
+
+app.post('/api/jack/hitlist/list', async (req, res) => {
+    const { password } = req.body;
+    if (password !== ADMINS_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    try {
+        const filePath = CONFIG_FILES['hitlist'];
+        const data = await fs.readFile(filePath, 'utf8');
+        const hitlist = data.split(',').map(item => item.trim()).filter(item => item !== '');
+        res.json({ success: true, data: hitlist });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ success: true, data: [] });
+        } else {
+            res.json({ success: false, message: error.message });
+        }
+    }
+});
+
+app.post('/api/jack/hitlist/save', async (req, res) => {
+    const { password, data } = req.body;
+    if (password !== ADMINS_PAGE_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    try {
+        const filePath = CONFIG_FILES['hitlist'];
+        const content = Array.isArray(data) ? data.join(', ') : '';
+        await fs.writeFile(filePath, content, 'utf8');
+        res.json({ success: true, message: 'Hitlist saved successfully' });
     } catch (error) {
         res.json({ success: false, message: error.message });
     }
