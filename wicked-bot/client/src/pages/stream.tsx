@@ -860,8 +860,18 @@ export default function StreamPage() {
               description: data.enable ? "Music stopped, GPT activated" : "GPT deactivated" 
             });
           }
-          if (data.message && isGPTConnected) {
-            sendMessageToGPT(data.message);
+          if (data.message) {
+            const waitForGPT = async (retries = 20) => {
+              for (let i = 0; i < retries; i++) {
+                if (gptWebSocketRef.current && gptWebSocketRef.current.readyState === WebSocket.OPEN) {
+                  sendMessageToGPT(data.message);
+                  return;
+                }
+                await new Promise(r => setTimeout(r, 500));
+              }
+              toast({ title: "GPT Not Ready", description: "Could not send message - GPT didn't connect in time", variant: "destructive" });
+            };
+            waitForGPT();
           }
           break;
         case 'youtube': {
