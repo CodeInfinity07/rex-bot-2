@@ -35,10 +35,10 @@ const MUSIC_UPLOAD_ENABLED = process.env.MUSIC_UPLOAD_ENABLED === 'true';
 const BOT_CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'rexsquad_stream_secret_2024';
 
 // Bot.js WebSocket URL for receiving stream control events
-const BOT_WS_URL = process.env.BOT_WS_URL || 'wss://wickedrex-143.botpanels.live/ws/stream-control';
+const BOT_WS_URL = process.env.BOT_WS_URL || `wss://${(process.env.DASHBOARD_URL || '').replace(/^https?:\/\//, '')}/ws/stream-control`;
 
 // Bot.js API URL for HTTP requests
-const BOT_API_URL = process.env.BOT_API_URL || 'https://wickedrex-143.botpanels.live';
+const BOT_API_URL = process.env.BOT_API_URL || process.env.DASHBOARD_URL || '';
 
 // Stream state for playback control (mirrors bot.js state)
 const streamState = {

@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Lock, Save, UserCog } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const VPS_API_URL = "https://wickedrex-143.botpanels.live";
+const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 export default function Admins() {
   const { toast } = useToast();

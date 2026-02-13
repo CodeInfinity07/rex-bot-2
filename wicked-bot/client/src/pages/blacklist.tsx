@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Lock, Save, Ban, UserX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const VPS_API_URL = "https://wickedrex-143.botpanels.live";
+const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 export default function BlacklistHitlist() {
   const { toast } = useToast();

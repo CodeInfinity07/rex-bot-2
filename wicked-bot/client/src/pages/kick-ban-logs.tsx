@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { RefreshCw, ChevronDown, Ban, UserX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const VPS_API_URL = "https://wickedrex-143.botpanels.live";
+const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 interface KickBanLog {
   id: string;

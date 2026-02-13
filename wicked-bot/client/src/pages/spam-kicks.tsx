@@ -25,7 +25,7 @@ interface SpamKick {
   timestamp: string;
 }
 
-const VPS_URL = "https://wickedrex-143.botpanels.live";
+const VPS_URL = import.meta.env.VITE_BOT_API_URL || "";
 const ITEMS_PER_PAGE = 20;
 
 export default function SpamKicksPage() {

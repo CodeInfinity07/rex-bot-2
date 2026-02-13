@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Lock, MessageSquare, RefreshCw, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const VPS_API_URL = "https://wickedrex-143.botpanels.live";
+const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 interface ChatResponse {
   success: boolean;

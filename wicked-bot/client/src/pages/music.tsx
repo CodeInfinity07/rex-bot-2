@@ -38,7 +38,7 @@ export default function MusicPage() {
     queryKey: ['vps-music-feature-status'],
     queryFn: async () => {
       const token = localStorage.getItem('bot_auth_token');
-      const res = await fetch('https://wickedrex-143.botpanels.live/api/jack/music-feature-status', {
+      const res = await fetch(`${import.meta.env.VITE_BOT_API_URL || ''}/api/jack/music-feature-status`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return res.json();

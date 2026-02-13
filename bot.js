@@ -5381,7 +5381,8 @@ async function connectWebSocket() {
                                             }
                                             
                                             // Create proxied URL to avoid CORS issues
-                                            const proxyUrl = `https://wickedrex-143.botpanels.live/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
+                                            const vpsBaseUrl = process.env.VPS_URL || `https://${require('os').hostname()}.botpanels.live`;
+                                            const proxyUrl = `${vpsBaseUrl}/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
                                             
                                             // Broadcast proxied YouTube URL to stream clients
                                             broadcastStreamEvent({ 
