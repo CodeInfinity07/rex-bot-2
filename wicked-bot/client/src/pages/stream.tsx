@@ -259,6 +259,7 @@ export default function StreamPage() {
     processor.onaudioprocess = (e) => {
       if (!gptWebSocketRef.current || gptWebSocketRef.current.readyState !== WebSocket.OPEN) return;
       if (!isTalkingEnabledRef.current) return;
+      if (gptIsPlayingRef.current) return;
       
       const inputData = e.inputBuffer.getChannelData(0);
       
