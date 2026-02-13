@@ -5501,6 +5501,74 @@ async function connectWebSocket() {
                                 }
                             }
 
+                            // Voice AI control: /talk [on|off|message]
+                            else if (String(message).startsWith("/talk")) {
+                                const user_id = findPlayerID(jsonMessage.PY.UID);
+                                if (botConfig.admins.includes(user_id)) {
+                                    try {
+                                        const talkArg = String(message).replace(/^\/talk\s*/, '').trim().toLowerCase();
+                                        
+                                        if (!talkArg || talkArg === 'on') {
+                                            if (!onMic) {
+                                                joinAdminMic(1);
+                                                let waited = 0;
+                                                while (!onMic && waited < 3000) {
+                                                    await new Promise(resolve => setTimeout(resolve, 200));
+                                                    waited += 200;
+                                                }
+                                                if (!onMic) {
+                                                    sendMessage(`❌ I am not on mic currently.`);
+                                                    return;
+                                                }
+                                            }
+                                            
+                                            broadcastStreamEvent({ 
+                                                action: 'talk', 
+                                                enable: true,
+                                                timestamp: Date.now()
+                                            });
+                                            
+                                            streamState.status = 'talking';
+                                            streamState.timestamp = Date.now();
+                                            
+                                            const currentBotName = botConfig.botConfiguration?.botName || 'Bot';
+                                            sendMessage(`🎙️ Voice AI mode activated! Say "${currentBotName}" to talk to me.`);
+                                            logger.info(`🎙️ Admin ${user_id} enabled /talk mode`);
+                                        } else if (talkArg === 'off') {
+                                            broadcastStreamEvent({ 
+                                                action: 'talk', 
+                                                enable: false,
+                                                timestamp: Date.now()
+                                            });
+                                            
+                                            streamState.status = 'idle';
+                                            streamState.timestamp = Date.now();
+                                            
+                                            sendMessage(`🔇 Voice AI mode deactivated. Music is available again.`);
+                                            logger.info(`🔇 Admin ${user_id} disabled /talk mode`);
+                                        } else {
+                                            broadcastStreamEvent({ 
+                                                action: 'talk', 
+                                                enable: true,
+                                                message: String(message).replace(/^\/talk\s*/, '').trim(),
+                                                timestamp: Date.now()
+                                            });
+                                            
+                                            streamState.status = 'talking';
+                                            streamState.timestamp = Date.now();
+                                            
+                                            sendMessage(`🗣️ Sending message to voice AI...`);
+                                            logger.info(`🗣️ Admin ${user_id} sent /talk message`);
+                                        }
+                                    } catch (err) {
+                                        sendMessage("Error processing talk command.");
+                                        logger.error(`/talk error: ${err.message}`);
+                                    }
+                                } else {
+                                    sendMessage(`You are not eligible to use this command.`);
+                                }
+                            }
+
                             else if (String(message).startsWith("/refresh")) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
