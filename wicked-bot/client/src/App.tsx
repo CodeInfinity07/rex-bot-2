@@ -28,6 +28,7 @@ import Chat from "@/pages/chat";
 import KickBanLogs from "@/pages/kick-ban-logs";
 import BlacklistHitlist from "@/pages/blacklist";
 import StreamPage from "@/pages/stream";
+import DedicatePage from "@/pages/dedicate";
 
 function ProtectedRoutes() {
   return (
@@ -66,6 +67,10 @@ function AppContent() {
         <StreamPage />
       </div>
     );
+  }
+
+  if (location === "/dedicate") {
+    return <DedicatePage />;
   }
 
   if (isLoading) {

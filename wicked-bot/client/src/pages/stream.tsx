@@ -875,6 +875,112 @@ export default function StreamPage() {
             waitForGPT();
           }
           break;
+        case 'dedication': {
+          if (isTalkingEnabled) {
+            toast({ title: "Music Disabled", description: "Talking mode is active" });
+            return;
+          }
+          if (data.url) {
+            cleanupHowl();
+            toast({ title: "💖 Dedication", description: `"${data.songName}" for ${data.dedicatedTo}` });
+            const howl = new Howl({
+              src: [data.url],
+              html5: true,
+              volume: isMuted ? 0 : volume / 100,
+              format: ['webm', 'opus', 'm4a', 'mp3', 'ogg'],
+              onload: () => {
+                setDuration(howl.duration());
+                howl.volume(isMuted ? 0 : volume / 100);
+              },
+              onplay: () => {
+                setIsPlaying(true);
+                progressIntervalRef.current = setInterval(() => {
+                  setCurrentTime(howl.seek() as number);
+                }, 250);
+              },
+              onpause: () => {
+                setIsPlaying(false);
+                if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+              },
+              onstop: () => {
+                setIsPlaying(false);
+                setCurrentTime(0);
+                if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+              },
+              onend: () => {
+                if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+                setIsPlaying(false);
+                setCurrentTime(0);
+                fetch(`${BOT_API_URL}/api/jack/dedicate/ended`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ dedicationId: data.dedicationId })
+                }).catch(() => {});
+              },
+              onloaderror: (id: number, error: unknown) => {
+                console.error('[Howler] Dedication load error:', error);
+                toast({ title: "Load error", description: "Could not load dedication audio", variant: "destructive" });
+                fetch(`${BOT_API_URL}/api/jack/dedicate/ended`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ dedicationId: data.dedicationId })
+                }).catch(() => {});
+              },
+              onplayerror: (id: number, error: unknown) => {
+                console.error('[Howler] Dedication play error:', error);
+                howl.once('unlock', () => { howl.play(); });
+              }
+            });
+
+            howlRef.current = howl;
+            howl.play();
+            
+            if (isConnectedRef.current && clientRef.current) {
+              (async () => {
+                try {
+                  await new Promise(r => setTimeout(r, 100));
+                  const audioContext = await getOrCreateAudioContext();
+                  // @ts-ignore
+                  const audioNode = howl._sounds[0]?._node as HTMLAudioElement | undefined;
+                  if (audioNode && !connectedNodesRef.current.has(audioNode)) {
+                    audioNode.crossOrigin = 'anonymous';
+                    if (audioTrackRef.current) {
+                      try {
+                        await clientRef.current!.unpublish(audioTrackRef.current);
+                        audioTrackRef.current.stop();
+                        audioTrackRef.current.close();
+                      } catch (e) { console.log('[Agora] cleanup:', e); }
+                      audioTrackRef.current = null;
+                    }
+                    if (mediaSourceRef.current) {
+                      try { mediaSourceRef.current.disconnect(); } catch {}
+                      mediaSourceRef.current = null;
+                    }
+                    const destination = audioContext.createMediaStreamDestination();
+                    destinationRef.current = destination;
+                    const source = audioContext.createMediaElementSource(audioNode);
+                    mediaSourceRef.current = source;
+                    connectedNodesRef.current.add(audioNode);
+                    source.connect(destination);
+                    source.connect(audioContext.destination);
+                    const track = AgoraRTC.createCustomAudioTrack({
+                      mediaStreamTrack: destination.stream.getAudioTracks()[0]
+                    });
+                    audioTrackRef.current = track;
+                    await clientRef.current!.publish(track);
+                    toast({ title: "Dedication Playing", description: `${data.songName} for ${data.dedicatedTo}` });
+                  }
+                } catch (err) {
+                  console.error('[Agora] Dedication stream error:', err);
+                  toast({ title: "Dedication", description: `${data.songName} for ${data.dedicatedTo}` });
+                }
+              })();
+            } else {
+              toast({ title: "Dedication", description: `${data.songName} for ${data.dedicatedTo}` });
+            }
+          }
+          break;
+        }
         case 'youtube': {
           if (isTalkingEnabled) {
             toast({ title: "Music Disabled", description: "Talking mode is active" });

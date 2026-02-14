@@ -3653,6 +3653,111 @@ const streamState = {
     timestamp: Date.now()
 };
 
+// Song Dedication Queue System
+const dedicationQueue = [];
+let currentDedication = null;
+let dedicationMessageInterval = null;
+
+function generateDedicationId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+function clearDedicationInterval() {
+    if (dedicationMessageInterval) {
+        clearInterval(dedicationMessageInterval);
+        dedicationMessageInterval = null;
+    }
+}
+
+async function playNextDedication() {
+    clearDedicationInterval();
+    currentDedication = null;
+
+    if (dedicationQueue.length === 0) {
+        logger.info('🎵 Dedication queue is empty');
+        return;
+    }
+
+    const dedication = dedicationQueue.shift();
+    dedication.status = 'playing';
+    currentDedication = dedication;
+
+    logger.info(`🎵 Playing dedication: "${dedication.songName}" for ${dedication.name}`);
+
+    try {
+        if (!onMic) {
+            joinAdminMic(1);
+            let waited = 0;
+            while (!onMic && waited < 3000) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                waited += 200;
+            }
+        }
+
+        const { spawn } = require('child_process');
+        const ytArgs = [
+            '--cookies', 'cookies.txt',
+            '--js-runtimes', 'node',
+            '-f', 'bestaudio',
+            '-g',
+            `ytsearch:${dedication.songName}`
+        ];
+
+        const ytProcess = spawn('/root/.local/bin/yt-dlp', ytArgs, { timeout: 30000 });
+        let stdout = '';
+        let stderr = '';
+
+        ytProcess.stdout.on('data', (data) => { stdout += data.toString(); });
+        ytProcess.stderr.on('data', (data) => { stderr += data.toString(); });
+
+        ytProcess.on('error', (error) => {
+            sendMessage(`❌ Failed to find song: ${dedication.songName}`);
+            logger.error(`Dedication yt-dlp error: ${error.message}`);
+            currentDedication = null;
+            setTimeout(() => playNextDedication(), 1000);
+        });
+
+        ytProcess.on('close', (code) => {
+            if (code !== 0 || !stdout.trim()) {
+                sendMessage(`❌ Could not find: ${dedication.songName}`);
+                logger.error(`Dedication yt-dlp failed: ${stderr}`);
+                currentDedication = null;
+                setTimeout(() => playNextDedication(), 1000);
+                return;
+            }
+
+            const audioUrl = stdout.trim();
+            const proxyUrl = `${DASHBOARD_URL}/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
+
+            broadcastStreamEvent({
+                action: 'dedication',
+                url: proxyUrl,
+                songName: dedication.songName,
+                dedicatedTo: dedication.name,
+                dedicationId: dedication.id,
+                timestamp: Date.now()
+            });
+
+            streamState.status = 'playing';
+            streamState.timestamp = Date.now();
+
+            sendMessage(`💖 Now playing: "${dedication.songName}" — Dedicated to ${dedication.name}`);
+
+            dedicationMessageInterval = setInterval(() => {
+                if (currentDedication) {
+                    sendMessage(`💖 This song is dedicated to ${currentDedication.name}`);
+                }
+            }, 30000);
+
+            logger.info(`🎵 Dedication playing: "${dedication.songName}" for ${dedication.name}`);
+        });
+    } catch (err) {
+        logger.error(`Dedication play error: ${err.message}`);
+        currentDedication = null;
+        setTimeout(() => playNextDedication(), 1000);
+    }
+}
+
 // SSE clients for real-time stream updates
 const streamSSEClients = new Set();
 
@@ -3721,6 +3826,91 @@ app.get('/api/jack/stream-events', (req, res) => {
 // Get current stream state
 app.get('/api/jack/stream-state', authMiddleware, (req, res) => {
     res.json({ success: true, data: streamState });
+});
+
+// Song Dedication API endpoints (PUBLIC - no auth required)
+app.post('/api/jack/dedicate', (req, res) => {
+    try {
+        const { name, songName } = req.body;
+        
+        if (!name || !songName || typeof name !== 'string' || typeof songName !== 'string') {
+            return res.json({ success: false, message: 'Name and song name are required' });
+        }
+        
+        if (name.trim().length > 50 || songName.trim().length > 100) {
+            return res.json({ success: false, message: 'Name or song name too long' });
+        }
+        
+        const dedication = {
+            id: generateDedicationId(),
+            name: name.trim(),
+            songName: songName.trim(),
+            status: 'queued',
+            timestamp: Date.now()
+        };
+        
+        dedicationQueue.push(dedication);
+        logger.info(`🎵 Dedication added: "${dedication.songName}" for ${dedication.name} (queue: ${dedicationQueue.length})`);
+        
+        if (!currentDedication) {
+            playNextDedication();
+        }
+        
+        res.json({ success: true, data: dedication, message: 'Dedication added to queue' });
+    } catch (err) {
+        logger.error(`Dedication submit error: ${err.message}`);
+        res.json({ success: false, message: 'Failed to submit dedication' });
+    }
+});
+
+app.get('/api/jack/dedicate/queue', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            current: currentDedication,
+            queue: dedicationQueue.filter(d => d.status === 'queued')
+        }
+    });
+});
+
+app.post('/api/jack/dedicate/ended', (req, res) => {
+    const { dedicationId } = req.body || {};
+    
+    if (!currentDedication) {
+        return res.json({ success: false, message: 'No dedication currently playing' });
+    }
+    
+    if (dedicationId && dedicationId !== currentDedication.id) {
+        return res.json({ success: false, message: 'Dedication ID mismatch, already advanced' });
+    }
+    
+    logger.info('🎵 Dedication song ended, playing next...');
+    clearDedicationInterval();
+    currentDedication = null;
+    
+    if (dedicationQueue.length > 0) {
+        playNextDedication();
+        res.json({ success: true, message: 'Playing next dedication' });
+    } else {
+        sendMessage('🎵 All dedications have been played!');
+        res.json({ success: true, message: 'Dedication queue empty' });
+    }
+});
+
+app.post('/api/jack/dedicate/skip', authMiddleware, (req, res) => {
+    logger.info('⏭️ Dedication skipped');
+    clearDedicationInterval();
+    currentDedication = null;
+    
+    broadcastStreamEvent({ action: 'stop', timestamp: Date.now() });
+    
+    if (dedicationQueue.length > 0) {
+        setTimeout(() => playNextDedication(), 500);
+        res.json({ success: true, message: 'Skipped, playing next dedication' });
+    } else {
+        sendMessage('🎵 All dedications have been played!');
+        res.json({ success: true, message: 'Skipped, queue empty' });
+    }
 });
 
 // Stream control: Play
@@ -5411,7 +5601,23 @@ async function connectWebSocket() {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
-                                        // Load songs to get the count
+                                        // If a dedication is currently playing, skip it
+                                        if (currentDedication) {
+                                            clearDedicationInterval();
+                                            currentDedication = null;
+                                            broadcastStreamEvent({ action: 'stop', timestamp: Date.now() });
+                                            
+                                            if (dedicationQueue.length > 0) {
+                                                sendMessage(`⏭️ Skipping dedication, playing next...`);
+                                                setTimeout(() => playNextDedication(), 500);
+                                            } else {
+                                                sendMessage(`⏭️ Dedication skipped. Queue is empty.`);
+                                            }
+                                            logger.info(`⏭️ Admin ${user_id} skipped dedication`);
+                                            return;
+                                        }
+                                        
+                                        // Normal playlist next
                                         let songs = [];
                                         try {
                                             const data = await fs.readFile(SONGS_METADATA_FILE, 'utf8');
