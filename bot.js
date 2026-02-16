@@ -3820,11 +3820,11 @@ async function playNextDedication() {
             }
 
             const audioUrl = stdout.trim();
-            const proxyUrl = `${DASHBOARD_URL}/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
+            const proxyPath = `/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
 
             broadcastStreamEvent({
                 action: 'dedication',
-                url: proxyUrl,
+                url: proxyPath,
                 songName: dedication.songName,
                 dedicatedTo: dedication.name,
                 dedicationId: dedication.id,
@@ -5679,13 +5679,11 @@ async function connectWebSocket() {
                                                 return;
                                             }
                                             
-                                            // Create proxied URL to avoid CORS issues
-                                            const proxyUrl = `${DASHBOARD_URL}/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
+                                            const proxyPath = `/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
                                             
-                                            // Broadcast proxied YouTube URL to stream clients
                                             broadcastStreamEvent({ 
                                                 action: 'youtube', 
-                                                url: proxyUrl,
+                                                url: proxyPath,
                                                 songName: songName,
                                                 timestamp: Date.now()
                                             });

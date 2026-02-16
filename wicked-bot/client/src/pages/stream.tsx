@@ -884,8 +884,9 @@ export default function StreamPage() {
           if (data.url) {
             cleanupHowl();
             toast({ title: "💖 Dedication", description: `"${data.songName}" for ${data.dedicatedTo}` });
+            const resolvedDedicationUrl = data.url.startsWith('/') ? buildApiUrl(data.url) : data.url;
             const howl = new Howl({
-              src: [data.url],
+              src: [resolvedDedicationUrl],
               html5: true,
               volume: isMuted ? 0 : volume / 100,
               format: ['webm', 'opus', 'm4a', 'mp3', 'ogg'],
@@ -989,8 +990,9 @@ export default function StreamPage() {
           }
           if (data.url) {
             cleanupHowl();
+            const resolvedUrl = data.url.startsWith('/') ? buildApiUrl(data.url) : data.url;
             const howl = new Howl({
-              src: [data.url],
+              src: [resolvedUrl],
               html5: true,
               volume: isMuted ? 0 : volume / 100,
               format: ['webm', 'opus', 'm4a', 'mp3', 'ogg'],

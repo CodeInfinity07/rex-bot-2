@@ -422,11 +422,12 @@ export default function StreamPage() {
             
             const audioEl = new Audio();
             audioEl.crossOrigin = 'anonymous';
-            audioEl.src = data.url;
+            const resolvedUrl = data.url.startsWith('/') ? buildApiUrl(data.url) : data.url;
+            audioEl.src = resolvedUrl;
             audioEl.volume = isMuted ? 0 : volume / 100;
             
             const howl = new Howl({
-              src: [data.url],
+              src: [resolvedUrl],
               html5: true,
               volume: 1,
               format: ['webm', 'opus', 'm4a', 'mp3', 'ogg'],

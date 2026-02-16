@@ -5247,13 +5247,11 @@ async function connectWebSocket() {
                                                 return;
                                             }
                                             
-                                            // Create proxied URL to avoid CORS issues
-                                            const proxyUrl = `https://ajnabi-jugnu-8018.botpanels.live/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
+                                            const proxyPath = `/api/jack/youtube-proxy?url=${encodeURIComponent(audioUrl)}`;
                                             
-                                            // Broadcast proxied YouTube URL to stream clients
                                             broadcastStreamEvent({ 
                                                 action: 'youtube', 
-                                                url: proxyUrl,
+                                                url: proxyPath,
                                                 songName: songName,
                                                 timestamp: Date.now()
                                             });
