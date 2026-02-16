@@ -3750,15 +3750,6 @@ async function playNextDedication() {
     logger.info(`🎵 Playing dedication: "${dedication.songName}" for ${dedication.name}`);
 
     try {
-        if (!onMic) {
-            joinAdminMic(1);
-            let waited = 0;
-            while (!onMic && waited < 3000) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-                waited += 200;
-            }
-        }
-
         const { spawn } = require('child_process');
         const ytArgs = [
             '--cookies', 'cookies.txt',
