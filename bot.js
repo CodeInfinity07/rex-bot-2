@@ -1092,13 +1092,9 @@ async function checkSecretMessages(uid) {
     const pending = messages.filter(m => m.targetGC === gc && m.status === 'pending');
     
     if (pending.length > 0) {
-        for (const msg of pending) {
-            sendMessage(`${getName(gc)} you have a secret message: "${msg.message}"`);
-            msg.status = 'delivered';
-            msg.deliveredAt = new Date().toISOString();
-        }
-        await saveSecretMessages(messages);
-        logger.info(`📨 Delivered ${pending.length} secret message(s) to GC: ${gc}`);
+        const count = pending.length;
+        sendMessage(`${getName(gc)} you have ${count} secret message${count > 1 ? 's' : ''}! Type /read to see ${count > 1 ? 'them' : 'it'}.`);
+        logger.info(`📨 Notified ${gc} about ${count} pending secret message(s)`);
     }
 }
 
@@ -6078,6 +6074,39 @@ async function connectWebSocket() {
                                 } catch (err) {
                                     logger.error(`Secret message error: ${err.message}`);
                                     sendMessage("Error saving secret message. Try again.");
+                                }
+                            }
+
+                            else if (String(message).trim() === "/read") {
+                                try {
+                                    const senderUID = jsonMessage.PY.UID;
+                                    const gc = findPlayerID(senderUID);
+                                    
+                                    if (!gc) {
+                                        sendMessage("Could not identify your player ID.");
+                                        return;
+                                    }
+                                    
+                                    const messages = await loadSecretMessages();
+                                    const pending = messages.filter(m => m.targetGC === gc && m.status === 'pending');
+                                    
+                                    if (pending.length === 0) {
+                                        sendMessage(`${getName(gc)} you have no secret messages.`);
+                                        return;
+                                    }
+                                    
+                                    for (const msg of pending) {
+                                        sendMessage(`📩 Secret message: "${msg.message}"`);
+                                        msg.status = 'delivered';
+                                        msg.deliveredAt = new Date().toISOString();
+                                    }
+                                    await saveSecretMessages(messages);
+                                    
+                                    deleteMsg(jsonMessage.PY.MID);
+                                    logger.info(`📨 ${gc} read ${pending.length} secret message(s)`);
+                                } catch (err) {
+                                    logger.error(`/read error: ${err.message}`);
+                                    sendMessage("Error reading secret messages. Try again.");
                                 }
                             }
 
