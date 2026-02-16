@@ -903,6 +903,20 @@ function joinMicGlobal(mic = 1) {
     messageQueue.enqueue(join_mic);
 }
 
+// Global sendMessage function (accessible from dedication, secret messages, and other scopes)
+function sendMessageGlobal(tempMsg) {
+    messageQueue.enqueue(JSON.stringify({
+        RH: "CBC",
+        PU: "CM",
+        PY: JSON.stringify({
+            CID: `${club_code}`,
+            MG: `${tempMsg}`
+        }),
+        SQ: null,
+        EN: false
+    }), true);
+}
+
 // Global execute functions for queue processors (accessible from all scopes)
 function executeCheckLevel(UID) {
     const message = JSON.stringify({
@@ -1107,7 +1121,7 @@ async function checkSecretMessages(uid) {
     
     if (pending.length > 0) {
         const count = pending.length;
-        sendMessage(`${getName(gc)} you have ${count} secret message${count > 1 ? 's' : ''}! Type /read to see ${count > 1 ? 'them' : 'it'}.`);
+        sendMessageGlobal(`${getName(gc)} you have ${count} secret message${count > 1 ? 's' : ''}! Type /read to see ${count > 1 ? 'them' : 'it'}.`);
         logger.info(`📨 Notified ${gc} about ${count} pending secret message(s)`);
     }
 }
@@ -3790,7 +3804,7 @@ async function playNextDedication() {
         ytProcess.stderr.on('data', (data) => { stderr += data.toString(); });
 
         ytProcess.on('error', (error) => {
-            sendMessage(`❌ Failed to find song: ${dedication.songName}`);
+            sendMessageGlobal(`❌ Failed to find song: ${dedication.songName}`);
             logger.error(`Dedication yt-dlp error: ${error.message}`);
             currentDedication = null;
             setTimeout(() => playNextDedication(), 1000);
@@ -3798,7 +3812,7 @@ async function playNextDedication() {
 
         ytProcess.on('close', (code) => {
             if (code !== 0 || !stdout.trim()) {
-                sendMessage(`❌ Could not find: ${dedication.songName}`);
+                sendMessageGlobal(`❌ Could not find: ${dedication.songName}`);
                 logger.error(`Dedication yt-dlp failed: ${stderr}`);
                 currentDedication = null;
                 setTimeout(() => playNextDedication(), 1000);
@@ -3820,11 +3834,11 @@ async function playNextDedication() {
             streamState.status = 'playing';
             streamState.timestamp = Date.now();
 
-            sendMessage(`💖 Now playing: "${dedication.songName}" — Dedicated to ${dedication.name}`);
+            sendMessageGlobal(`💖 Now playing: "${dedication.songName}" — Dedicated to ${dedication.name}`);
 
             dedicationMessageInterval = setInterval(() => {
                 if (currentDedication) {
-                    sendMessage(`💖 This song is dedicated to ${currentDedication.name}`);
+                    sendMessageGlobal(`💖 This song is dedicated to ${currentDedication.name}`);
                 }
             }, 30000);
 
@@ -3971,7 +3985,7 @@ app.post('/api/jack/dedicate/ended', (req, res) => {
         playNextDedication();
         res.json({ success: true, message: 'Playing next dedication' });
     } else {
-        sendMessage('🎵 All dedications have been played!');
+        sendMessageGlobal('🎵 All dedications have been played!');
         res.json({ success: true, message: 'Dedication queue empty' });
     }
 });
@@ -3987,7 +4001,7 @@ app.post('/api/jack/dedicate/skip', authMiddleware, (req, res) => {
         setTimeout(() => playNextDedication(), 500);
         res.json({ success: true, message: 'Skipped, playing next dedication' });
     } else {
-        sendMessage('🎵 All dedications have been played!');
+        sendMessageGlobal('🎵 All dedications have been played!');
         res.json({ success: true, message: 'Skipped, queue empty' });
     }
 });
