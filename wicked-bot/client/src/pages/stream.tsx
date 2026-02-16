@@ -91,6 +91,7 @@ export default function StreamPage() {
   const remoteAudioProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const remoteAudioTracksRef = useRef<Map<number, IRemoteAudioTrack>>(new Map());
   const isTalkingEnabledRef = useRef(false);
+  const sseQueueRef = useRef<Promise<void>>(Promise.resolve());
   
   const { toast } = useToast();
 
@@ -1162,7 +1163,11 @@ export default function StreamPage() {
       const sseUrl = buildApiUrl('/api/jack/stream-events');
       eventSource = new EventSource(sseUrl);
       sseRef.current = eventSource;
-      eventSource.onmessage = handleSSEMessage;
+      eventSource.onmessage = (event: MessageEvent) => {
+        sseQueueRef.current = sseQueueRef.current
+          .then(() => handleSSEMessage(event))
+          .catch((err) => console.error('[SSE Queue] Error:', err));
+      };
       eventSource.onerror = () => {
         eventSource?.close();
         reconnectTimeout = setTimeout(connectSSE, 5000);

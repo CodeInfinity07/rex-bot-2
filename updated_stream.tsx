@@ -61,6 +61,7 @@ export default function StreamPage() {
   const isConnectedRef = useRef(false);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const remoteAudioTracksRef = useRef<Map<number, any>>(new Map());
+  const sseQueueRef = useRef<Promise<void>>(Promise.resolve());
   
   const { toast } = useToast();
 
@@ -642,7 +643,11 @@ export default function StreamPage() {
       eventSource = new EventSource(sseUrl);
       sseRef.current = eventSource;
 
-      eventSource.onmessage = handleSSEMessage;
+      eventSource.onmessage = (event: MessageEvent) => {
+        sseQueueRef.current = sseQueueRef.current
+          .then(() => handleSSEMessage(event))
+          .catch((err) => console.error('[SSE Queue] Error:', err));
+      };
 
       eventSource.onerror = () => {
         console.error('SSE connection error, reconnecting in 5s...');
