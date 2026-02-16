@@ -889,6 +889,20 @@ let pendingUnbans = [];
 let pendingLevelChecks = [];
 let banAttempts = {}; // Track ban attempts per UID to avoid infinite loops
 
+// Global mic join function (accessible from dedication system and other scopes)
+function joinMicGlobal(mic = 1) {
+    const join_mic = JSON.stringify({
+        RH: "CBC",
+        PU: "TMS",
+        SQ: null,
+        PY: JSON.stringify({
+            MN: mic,
+            TM: true
+        })
+    });
+    messageQueue.enqueue(join_mic);
+}
+
 // Global execute functions for queue processors (accessible from all scopes)
 function executeCheckLevel(UID) {
     const message = JSON.stringify({
@@ -3750,6 +3764,15 @@ async function playNextDedication() {
     logger.info(`🎵 Playing dedication: "${dedication.songName}" for ${dedication.name}`);
 
     try {
+        if (!onMic) {
+            joinMicGlobal(1);
+            let waited = 0;
+            while (!onMic && waited < 3000) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                waited += 200;
+            }
+        }
+
         const { spawn } = require('child_process');
         const ytArgs = [
             '--cookies', 'cookies.txt',
