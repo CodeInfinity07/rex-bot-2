@@ -5172,6 +5172,22 @@ async function connectWebSocket() {
                                 botMic = Number(jsonMessage.PY.IN);
                                 onMic = true;
                                 logger.info(`🎤 Bot joined mic #${botMic}`);
+                                
+                                if (jsonMessage.PY.VC && jsonMessage.PY.VC.VCH && jsonMessage.PY.VC.AT) {
+                                    const newChannel = jsonMessage.PY.VC.VCH;
+                                    const newToken = jsonMessage.PY.VC.AT;
+                                    updateAgoraCredentials(newChannel, newToken);
+                                    
+                                    broadcastStreamEvent({
+                                        action: 'credentials',
+                                        channel: newChannel,
+                                        token: newToken,
+                                        appId: agoraCredentials.appId,
+                                        userId: agoraCredentials.userId,
+                                        timestamp: Date.now()
+                                    });
+                                    logger.info(`📡 Broadcast new Agora credentials to stream clients`);
+                                }
                             }
                         }
 

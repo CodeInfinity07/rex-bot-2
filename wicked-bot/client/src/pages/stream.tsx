@@ -1076,6 +1076,45 @@ export default function StreamPage() {
           }
           break;
         }
+        case 'credentials': {
+          console.log('[Stream] Received fresh Agora credentials from bot TMS');
+          try {
+            if (isConnectedRef.current && clientRef.current) {
+              await disconnect();
+            }
+            const { appId, channel, token, userId } = data;
+            if (appId && channel && token) {
+              setIsConnecting(true);
+              const client = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
+              clientRef.current = client;
+
+              client.on("user-published", async (user, mediaType) => {
+                if (mediaType === "audio") {
+                  await client.subscribe(user, mediaType);
+                  remoteAudioTracksRef.current.set(user.uid as number, user.audioTrack!);
+                  console.log(`[Agora] Subscribed to remote user ${user.uid}`);
+                }
+              });
+              client.on("user-unpublished", (user, mediaType) => {
+                if (mediaType === "audio") {
+                  remoteAudioTracksRef.current.delete(user.uid as number);
+                }
+              });
+
+              await client.join(appId, channel, token, userId);
+              setIsConnected(true);
+              isConnectedRef.current = true;
+              refetchConfig();
+              toast({ title: "Agora Connected", description: "Ready to stream with fresh credentials" });
+            }
+          } catch (err: any) {
+            console.error('[Agora] Credentials connect error:', err);
+            toast({ title: "Connection Failed", description: err.message, variant: "destructive" });
+          } finally {
+            setIsConnecting(false);
+          }
+          break;
+        }
         case 'reconnect':
           toast({ title: "Reconnecting", description: "Admin triggered Agora reconnect..." });
           await disconnect();
