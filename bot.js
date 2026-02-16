@@ -235,6 +235,7 @@ const MODERATORS_FILE = './data/moderators.json';
 const ACTIVITY_LOGS_FILE = './data/activity_logs.json';
 const SONGS_DIR = './data/songs';
 const SONGS_METADATA_FILE = './data/songs_metadata.json';
+const SECRET_MESSAGES_FILE = './data/secret_messages.json';
 const MAX_SONGS = 10;
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const conversationHistory = new Map();
@@ -1069,10 +1070,43 @@ function formatDuration(seconds) {
     return `${secs}s`;
 }
 
+// Secret Messages System
+async function loadSecretMessages() {
+    try {
+        const data = await fs.readFile(SECRET_MESSAGES_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch {
+        return [];
+    }
+}
+
+async function saveSecretMessages(messages) {
+    await fs.writeFile(SECRET_MESSAGES_FILE, JSON.stringify(messages, null, 2), 'utf8');
+}
+
+async function checkSecretMessages(uid) {
+    const gc = findPlayerID(uid);
+    if (!gc) return;
+    
+    const messages = await loadSecretMessages();
+    const pending = messages.filter(m => m.targetGC === gc && m.status === 'pending');
+    
+    if (pending.length > 0) {
+        for (const msg of pending) {
+            sendMessage(`${getName(gc)} you have a secret message: "${msg.message}"`);
+            msg.status = 'delivered';
+            msg.deliveredAt = new Date().toISOString();
+        }
+        await saveSecretMessages(messages);
+        logger.info(`📨 Delivered ${pending.length} secret message(s) to GC: ${gc}`);
+    }
+}
+
 // Handle user joining the club
 function handleUserJoin(uid) {
     activeSessions.set(uid, Date.now());
     logger.info(`👋 User joined, tracking session: ${uid.substring(0, 16)}...`);
+    checkSecretMessages(uid).catch(err => logger.error(`Secret msg check error: ${err.message}`));
 }
 
 // Handle user leaving the club and update their time
@@ -3426,6 +3460,41 @@ app.get('/api/jack/spam-kicks', authMiddleware, async (req, res) => {
         res.json({ success: true, data: kicks });
     } catch (error) {
         res.json({ success: false, message: 'Failed to load spam kicks' });
+    }
+});
+
+// Secret Messages endpoints (owner-only)
+app.get('/api/jack/secret-messages', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        const messages = await loadSecretMessages();
+        messages.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        res.json({ success: true, data: messages });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to load secret messages' });
+    }
+});
+
+app.delete('/api/jack/secret-messages/:id', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        const messages = await loadSecretMessages();
+        const idx = messages.findIndex(m => m.id === req.params.id);
+        if (idx === -1) {
+            return res.json({ success: false, message: 'Message not found' });
+        }
+        messages.splice(idx, 1);
+        await saveSecretMessages(messages);
+        res.json({ success: true, message: 'Secret message deleted' });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to delete secret message' });
+    }
+});
+
+app.delete('/api/jack/secret-messages', authMiddleware, ownerOnly, async (req, res) => {
+    try {
+        await saveSecretMessages([]);
+        res.json({ success: true, message: 'All secret messages cleared' });
+    } catch (error) {
+        res.json({ success: false, message: 'Failed to clear secret messages' });
     }
 });
 
@@ -5959,6 +6028,56 @@ async function connectWebSocket() {
                                     }
                                 } catch (err) {
                                     sendMessage("Please use the command in format '/lm [mic_number]' or '/lm all'");
+                                }
+                            }
+
+                            else if (String(message).startsWith("/secret ")) {
+                                try {
+                                    const parts = String(message).substring(8).trim();
+                                    const spaceIdx = parts.indexOf(' ');
+                                    
+                                    if (spaceIdx === -1) {
+                                        sendMessage("Usage: /secret [PlayerID] [your message]");
+                                        return;
+                                    }
+                                    
+                                    const targetGC = parts.substring(0, spaceIdx).trim();
+                                    const secretMsg = parts.substring(spaceIdx + 1).trim();
+                                    
+                                    if (!targetGC || !secretMsg) {
+                                        sendMessage("Usage: /secret [PlayerID] [your message]");
+                                        return;
+                                    }
+                                    
+                                    if (secretMsg.length > 500) {
+                                        sendMessage("Message too long. Max 500 characters.");
+                                        return;
+                                    }
+                                    
+                                    const senderUID = jsonMessage.PY.UID;
+                                    const senderGC = findPlayerID(senderUID);
+                                    const senderName = getName(senderGC) || senderGC || 'Unknown';
+                                    
+                                    const messages = await loadSecretMessages();
+                                    messages.push({
+                                        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+                                        targetGC: targetGC,
+                                        message: secretMsg,
+                                        senderGC: senderGC || 'Unknown',
+                                        senderName: senderName,
+                                        senderUID: senderUID,
+                                        status: 'pending',
+                                        createdAt: new Date().toISOString(),
+                                        deliveredAt: null
+                                    });
+                                    await saveSecretMessages(messages);
+                                    
+                                    deleteMsg(jsonMessage.PY.MID);
+                                    sendMessage(`Your secret message has been saved and will be delivered when ${targetGC} enters the club.`);
+                                    logger.info(`📨 Secret message stored from ${senderGC} to ${targetGC}`);
+                                } catch (err) {
+                                    logger.error(`Secret message error: ${err.message}`);
+                                    sendMessage("Error saving secret message. Try again.");
                                 }
                             }
 

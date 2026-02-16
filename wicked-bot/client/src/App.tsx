@@ -29,6 +29,7 @@ import KickBanLogs from "@/pages/kick-ban-logs";
 import BlacklistHitlist from "@/pages/blacklist";
 import StreamPage from "@/pages/stream";
 import DedicatePage from "@/pages/dedicate";
+import SecretMessages from "@/pages/secret-messages";
 
 function ProtectedRoutes() {
   return (
@@ -51,6 +52,7 @@ function ProtectedRoutes() {
       <Route path="/chat" component={Chat} />
       <Route path="/kick-ban-logs" component={KickBanLogs} />
       <Route path="/blacklist" component={BlacklistHitlist} />
+      <Route path="/secret-messages" component={SecretMessages} />
       <Route path="/stream" component={StreamPage} />
       <Route component={Overview} />
     </Switch>
