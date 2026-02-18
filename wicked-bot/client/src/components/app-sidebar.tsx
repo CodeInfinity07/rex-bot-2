@@ -1,4 +1,4 @@
-import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog, Music2, AlertTriangle, MessageSquare, UserPlus, Ban, Mail, ToggleRight } from "lucide-react";
+import { Home, Gamepad2, Settings, Sliders, Shield, Command, UserCheck, Users, UserSearch, Star, Activity, UserCog, Music2, AlertTriangle, MessageSquare, UserPlus, Ban, Mail, ToggleRight, ShieldCheck } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
@@ -38,6 +38,7 @@ const ownerOnlyItems = [
   { title: "Secret Messages", url: "/secret-messages", icon: Mail },
   { title: "Activity Logs", url: "/logs", icon: Activity },
   { title: "Spam Kicks", url: "/spam-kicks", icon: AlertTriangle },
+  { title: "Page Protection", url: "/page-protection", icon: ShieldCheck },
 ];
 
 export function AppSidebar() {

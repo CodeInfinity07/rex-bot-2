@@ -32,31 +32,42 @@ import DedicatePage from "@/pages/dedicate";
 import SecretMessages from "@/pages/secret-messages";
 import FeaturesAdmin from "@/pages/features-admin";
 import FeatureStatus from "@/pages/feature-status";
+import PageProtection from "@/pages/page-protection";
+import PageProtectionWrapper from "@/components/page-protection-wrapper";
+
+function WrappedPage({ pageId, Component }: { pageId: string; Component: React.ComponentType }) {
+  return (
+    <PageProtectionWrapper pageId={pageId}>
+      <Component />
+    </PageProtectionWrapper>
+  );
+}
 
 function ProtectedRoutes() {
   return (
     <Switch>
       <Route path="/" component={Overview} />
-      <Route path="/controls" component={BotControls} />
-      <Route path="/configuration" component={Configuration} />
-      <Route path="/settings" component={Settings} />
-      <Route path="/members" component={Members} />
-      <Route path="/protection" component={Protection} />
-      <Route path="/exemptions" component={Exemptions} />
-      <Route path="/loyal-members" component={LoyalMembers} />
-      <Route path="/players" component={PlayerLookup} />
+      <Route path="/controls">{() => <WrappedPage pageId="controls" Component={BotControls} />}</Route>
+      <Route path="/configuration">{() => <WrappedPage pageId="configuration" Component={Configuration} />}</Route>
+      <Route path="/settings">{() => <WrappedPage pageId="settings" Component={Settings} />}</Route>
+      <Route path="/members">{() => <WrappedPage pageId="members" Component={Members} />}</Route>
+      <Route path="/protection">{() => <WrappedPage pageId="protection" Component={Protection} />}</Route>
+      <Route path="/exemptions">{() => <WrappedPage pageId="exemptions" Component={Exemptions} />}</Route>
+      <Route path="/loyal-members">{() => <WrappedPage pageId="loyal-members" Component={LoyalMembers} />}</Route>
+      <Route path="/players">{() => <WrappedPage pageId="players" Component={PlayerLookup} />}</Route>
       <Route path="/commands" component={Commands} />
-      <Route path="/moderators" component={Moderators} />
-      <Route path="/logs" component={ActivityLogs} />
-      <Route path="/music" component={Music} />
-      <Route path="/spam-kicks" component={SpamKicks} />
-      <Route path="/admins" component={Admins} />
-      <Route path="/chat" component={Chat} />
-      <Route path="/kick-ban-logs" component={KickBanLogs} />
-      <Route path="/blacklist" component={BlacklistHitlist} />
-      <Route path="/secret-messages" component={SecretMessages} />
+      <Route path="/moderators">{() => <WrappedPage pageId="moderators" Component={Moderators} />}</Route>
+      <Route path="/logs">{() => <WrappedPage pageId="logs" Component={ActivityLogs} />}</Route>
+      <Route path="/music">{() => <WrappedPage pageId="music" Component={Music} />}</Route>
+      <Route path="/spam-kicks">{() => <WrappedPage pageId="spam-kicks" Component={SpamKicks} />}</Route>
+      <Route path="/admins">{() => <WrappedPage pageId="admins" Component={Admins} />}</Route>
+      <Route path="/chat">{() => <WrappedPage pageId="chat" Component={Chat} />}</Route>
+      <Route path="/kick-ban-logs">{() => <WrappedPage pageId="kick-ban-logs" Component={KickBanLogs} />}</Route>
+      <Route path="/blacklist">{() => <WrappedPage pageId="blacklist" Component={BlacklistHitlist} />}</Route>
+      <Route path="/secret-messages">{() => <WrappedPage pageId="secret-messages" Component={SecretMessages} />}</Route>
       <Route path="/stream" component={StreamPage} />
       <Route path="/feature-status" component={FeatureStatus} />
+      <Route path="/page-protection" component={PageProtection} />
       <Route component={Overview} />
     </Switch>
   );

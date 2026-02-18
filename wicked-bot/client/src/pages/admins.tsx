@@ -1,44 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Lock, Save, UserCog } from "lucide-react";
+import { Save, UserCog } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 export default function Admins() {
   const { toast } = useToast();
-  const [password, setPassword] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [admins, setAdmins] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
-  const verifyPassword = async () => {
-    setIsVerifying(true);
-    try {
-      const response = await fetch(`${VPS_API_URL}/api/jack/admins/verify-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        setIsAuthenticated(true);
-        loadAdmins();
-        toast({ title: "Success", description: "Password verified" });
-      } else {
-        toast({ title: "Error", description: "Invalid password", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to verify password", variant: "destructive" });
-    }
-    setIsVerifying(false);
-  };
 
   const loadAdmins = async () => {
     setIsLoading(true);
@@ -46,10 +19,9 @@ export default function Admins() {
       const response = await fetch(`${VPS_API_URL}/api/jack/admins/list`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password: "Affan0000" }),
       });
       const data = await response.json();
-      
       if (data.success) {
         setAdmins(data.data.join(", "));
       }
@@ -59,6 +31,10 @@ export default function Admins() {
     setIsLoading(false);
   };
 
+  useEffect(() => {
+    loadAdmins();
+  }, []);
+
   const saveAdmins = async () => {
     setIsSaving(true);
     try {
@@ -66,14 +42,14 @@ export default function Admins() {
         .split(",")
         .map((a) => a.trim())
         .filter((a) => a !== "");
-      
+
       const response = await fetch(`${VPS_API_URL}/api/jack/admins/save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, data: adminList }),
+        body: JSON.stringify({ password: "Affan0000", data: adminList }),
       });
       const data = await response.json();
-      
+
       if (data.success) {
         toast({ title: "Success", description: "Admins saved successfully" });
       } else {
@@ -84,41 +60,6 @@ export default function Admins() {
     }
     setIsSaving(false);
   };
-
-  if (!isAuthenticated) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Administrators</h1>
-          <p className="text-muted-foreground mt-1">Password protected admin management</p>
-        </div>
-
-        <Card className="max-w-md mx-auto">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
-              <CardTitle>Enter Password</CardTitle>
-            </div>
-            <CardDescription>This page is password protected</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <Input
-                type="password"
-                placeholder="Enter password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && verifyPassword()}
-              />
-              <Button onClick={verifyPassword} disabled={isVerifying || !password} className="w-full">
-                {isVerifying ? "Verifying..." : "Unlock"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -137,7 +78,9 @@ export default function Admins() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-muted-foreground">Loading admins...</p>
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
           ) : (
             <div className="space-y-4">
               <Textarea

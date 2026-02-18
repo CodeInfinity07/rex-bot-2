@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Lock, MessageSquare, RefreshCw, ChevronDown } from "lucide-react";
+import { MessageSquare, RefreshCw, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
@@ -19,38 +18,13 @@ interface ChatResponse {
 
 export default function Chat() {
   const { toast } = useToast();
-  const [password, setPassword] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [messages, setMessages] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-
-  const verifyPassword = async () => {
-    setIsVerifying(true);
-    try {
-      const response = await fetch(`${VPS_API_URL}/api/jack/chat/verify-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        setIsAuthenticated(true);
-        toast({ title: "Success", description: "Password verified" });
-      } else {
-        toast({ title: "Error", description: "Invalid password", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to verify password", variant: "destructive" });
-    }
-    setIsVerifying(false);
-  };
 
   const loadMessages = async (pageNum: number = 1, append: boolean = false) => {
     if (pageNum === 1) {
@@ -58,15 +32,15 @@ export default function Chat() {
     } else {
       setIsLoadingMore(true);
     }
-    
+
     try {
       const response = await fetch(`${VPS_API_URL}/api/jack/chat/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, page: pageNum, limit: 100 }),
+        body: JSON.stringify({ password: "Affan0000", page: pageNum, limit: 100 }),
       });
       const data: ChatResponse = await response.json();
-      
+
       if (data.success) {
         if (append) {
           setMessages(prev => [...prev, ...data.data]);
@@ -82,7 +56,7 @@ export default function Chat() {
     } catch (error) {
       toast({ title: "Error", description: "Failed to load messages", variant: "destructive" });
     }
-    
+
     setIsLoading(false);
     setIsLoadingMore(false);
   };
@@ -97,45 +71,8 @@ export default function Chat() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadMessages(1);
-    }
-  }, [isAuthenticated]);
-
-  if (!isAuthenticated) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Chat History</h1>
-          <p className="text-muted-foreground mt-1">View club chat messages (last 7 days)</p>
-        </div>
-
-        <Card className="max-w-md mx-auto">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
-              <CardTitle>Enter Password</CardTitle>
-            </div>
-            <CardDescription>This page is password protected</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <Input
-                type="password"
-                placeholder="Enter password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && verifyPassword()}
-              />
-              <Button onClick={verifyPassword} disabled={isVerifying || !password} className="w-full">
-                {isVerifying ? "Verifying..." : "Unlock"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+    loadMessages(1);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -169,7 +106,7 @@ export default function Chat() {
             <p className="text-center text-muted-foreground py-8">No messages found</p>
           ) : (
             <div className="space-y-4">
-              <div 
+              <div
                 ref={chatContainerRef}
                 className="max-h-[500px] overflow-y-auto space-y-1 font-mono text-sm bg-muted/50 rounded-lg p-4"
               >
@@ -179,7 +116,7 @@ export default function Chat() {
                   </div>
                 ))}
               </div>
-              
+
               {hasMore && (
                 <div className="flex justify-center">
                   <Button variant="outline" onClick={loadMore} disabled={isLoadingMore}>
@@ -188,7 +125,7 @@ export default function Chat() {
                   </Button>
                 </div>
               )}
-              
+
               <p className="text-center text-xs text-muted-foreground">
                 Showing {messages.length} of {total} messages
               </p>
