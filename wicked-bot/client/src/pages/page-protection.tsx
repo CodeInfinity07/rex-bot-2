@@ -207,30 +207,32 @@ export default function PageProtection() {
             <form onSubmit={handleSetPassword} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="new-pass">Password</Label>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <Input id="new-pass" type={showPassword ? "text" : "password"}
+                    className="pr-10"
                     placeholder="Enter password (min 4 characters)"
                     value={password} onChange={(e) => setPassword(e.target.value)}
                     disabled={setPasswordMutation.isPending} />
-                  <Button type="button" variant="ghost" size="sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                  <button type="button"
+                    className="absolute right-2 inline-flex items-center justify-center h-6 w-6 text-muted-foreground hover:text-foreground"
                     onClick={() => setShowPassword(!showPassword)}>
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+                  </button>
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirm-pass">Confirm Password</Label>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <Input id="confirm-pass" type={showConfirmPassword ? "text" : "password"}
+                    className="pr-10"
                     placeholder="Confirm your password"
                     value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
                     disabled={setPasswordMutation.isPending} />
-                  <Button type="button" variant="ghost" size="sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                  <button type="button"
+                    className="absolute right-2 inline-flex items-center justify-center h-6 w-6 text-muted-foreground hover:text-foreground"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
                     {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+                  </button>
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={setPasswordMutation.isPending || !password || !confirmPassword}>
@@ -353,44 +355,47 @@ export default function PageProtection() {
           <form onSubmit={handleChangePassword} className="space-y-4">
             <div className="space-y-2">
               <Label>Current Password</Label>
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Input type={showCurrentPassword ? "text" : "password"}
+                  className="pr-10"
                   placeholder="Enter current password"
                   value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
                   disabled={changePasswordMutation.isPending} />
-                <Button type="button" variant="ghost" size="sm"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                <button type="button"
+                  className="absolute right-2 inline-flex items-center justify-center h-6 w-6 text-muted-foreground hover:text-foreground"
                   onClick={() => setShowCurrentPassword(!showCurrentPassword)}>
                   {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                </button>
               </div>
             </div>
             <div className="space-y-2">
               <Label>New Password</Label>
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Input type={showNewPassword ? "text" : "password"}
+                  className="pr-10"
                   placeholder="Enter new password"
                   value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
                   disabled={changePasswordMutation.isPending} />
-                <Button type="button" variant="ghost" size="sm"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                <button type="button"
+                  className="absolute right-2 inline-flex items-center justify-center h-6 w-6 text-muted-foreground hover:text-foreground"
                   onClick={() => setShowNewPassword(!showNewPassword)}>
                   {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                </button>
               </div>
             </div>
             <div className="space-y-2">
               <Label>Confirm New Password</Label>
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Input type={showNewConfirmPassword ? "text" : "password"}
+                  className="pr-10"
                   placeholder="Confirm new password"
                   value={newConfirmPassword} onChange={(e) => setNewConfirmPassword(e.target.value)}
                   disabled={changePasswordMutation.isPending} />
-                <Button type="button" variant="ghost" size="sm"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                <button type="button"
+                  className="absolute right-2 inline-flex items-center justify-center h-6 w-6 text-muted-foreground hover:text-foreground"
                   onClick={() => setShowNewConfirmPassword(!showNewConfirmPassword)}>
                   {showNewConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                </button>
               </div>
             </div>
             <Button type="submit" variant="outline" className="w-full"
