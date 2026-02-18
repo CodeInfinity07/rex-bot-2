@@ -2,7 +2,6 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { promises as fs } from "fs";
 import path from "path";
-import bcrypt from "bcryptjs";
 import { setupBotIntegration, initializeBotIntegration } from "./bot-integration";
 
 // File paths for data storage
@@ -17,7 +16,6 @@ const FILES = {
   EXEMPTIONS: path.join(DATA_DIR, 'exemptions.txt'),
   LOYAL_MEMBERS: path.join(DATA_DIR, 'loyal_members.txt'),
   BOT_STATUS: path.join(DATA_DIR, 'bot_status.json'),
-  PAGE_PROTECTION: path.join(DATA_DIR, 'page_protection.json'),
 };
 
 // Ensure data directory exists
@@ -657,155 +655,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: 'Cache cleared successfully', data: status });
     } catch (error: any) {
       console.error('Error clearing cache:', error);
-      res.json({ success: false, message: error.message });
-    }
-  });
-
-  // =====================
-  // Page Protection APIs
-  // =====================
-
-  const DEFAULT_PAGE_PROTECTION = {
-    passwordHash: null as string | null,
-    protectedPages: {} as Record<string, boolean>,
-  };
-
-  const PROTECTABLE_PAGES = [
-    { id: 'admins', label: 'Administrators', path: '/admins' },
-    { id: 'chat', label: 'Chat History', path: '/chat' },
-    { id: 'blacklist', label: 'Blacklist/Hitlist', path: '/blacklist' },
-    { id: 'moderators', label: 'Moderators', path: '/moderators' },
-    { id: 'kick-ban-logs', label: 'Kick/Ban Logs', path: '/kick-ban-logs' },
-    { id: 'secret-messages', label: 'Secret Messages', path: '/secret-messages' },
-    { id: 'logs', label: 'Activity Logs', path: '/logs' },
-    { id: 'spam-kicks', label: 'Spam Kicks', path: '/spam-kicks' },
-    { id: 'controls', label: 'Bot Controls', path: '/controls' },
-    { id: 'configuration', label: 'Configuration', path: '/configuration' },
-    { id: 'settings', label: 'Settings', path: '/settings' },
-    { id: 'protection', label: 'Protection', path: '/protection' },
-    { id: 'exemptions', label: 'Exemptions', path: '/exemptions' },
-    { id: 'loyal-members', label: 'Loyal Members', path: '/loyal-members' },
-    { id: 'members', label: 'Members', path: '/members' },
-    { id: 'players', label: 'Players', path: '/players' },
-    { id: 'music', label: 'Music', path: '/music' },
-  ];
-
-  app.get('/api/page-protection/status', async (_req, res) => {
-    try {
-      const config = await readJsonFile(FILES.PAGE_PROTECTION, DEFAULT_PAGE_PROTECTION);
-      res.json({
-        success: true,
-        hasPassword: !!config.passwordHash,
-        protectedPages: config.protectedPages || {},
-        pages: PROTECTABLE_PAGES,
-      });
-    } catch (error: any) {
-      res.json({ success: false, message: error.message });
-    }
-  });
-
-  app.post('/api/page-protection/set-password', async (req, res) => {
-    try {
-      const { password, confirmPassword } = req.body;
-      if (!password || !confirmPassword) {
-        return res.json({ success: false, message: 'Password and confirmation are required' });
-      }
-      if (password !== confirmPassword) {
-        return res.json({ success: false, message: 'Passwords do not match' });
-      }
-      if (password.length < 4) {
-        return res.json({ success: false, message: 'Password must be at least 4 characters' });
-      }
-      const config = await readJsonFile(FILES.PAGE_PROTECTION, DEFAULT_PAGE_PROTECTION);
-      config.passwordHash = await bcrypt.hash(password, 10);
-      await writeJsonFile(FILES.PAGE_PROTECTION, config);
-      res.json({ success: true, message: 'Password set successfully' });
-    } catch (error: any) {
-      res.json({ success: false, message: error.message });
-    }
-  });
-
-  app.post('/api/page-protection/change-password', async (req, res) => {
-    try {
-      const { currentPassword, newPassword, confirmPassword } = req.body;
-      if (!currentPassword || !newPassword || !confirmPassword) {
-        return res.json({ success: false, message: 'All fields are required' });
-      }
-      if (newPassword !== confirmPassword) {
-        return res.json({ success: false, message: 'New passwords do not match' });
-      }
-      if (newPassword.length < 4) {
-        return res.json({ success: false, message: 'Password must be at least 4 characters' });
-      }
-      const config = await readJsonFile(FILES.PAGE_PROTECTION, DEFAULT_PAGE_PROTECTION);
-      if (!config.passwordHash) {
-        return res.json({ success: false, message: 'No password set yet' });
-      }
-      const valid = await bcrypt.compare(currentPassword, config.passwordHash);
-      if (!valid) {
-        return res.json({ success: false, message: 'Current password is incorrect' });
-      }
-      config.passwordHash = await bcrypt.hash(newPassword, 10);
-      await writeJsonFile(FILES.PAGE_PROTECTION, config);
-      res.json({ success: true, message: 'Password changed successfully' });
-    } catch (error: any) {
-      res.json({ success: false, message: error.message });
-    }
-  });
-
-  app.post('/api/page-protection/verify', async (req, res) => {
-    try {
-      const { password } = req.body;
-      if (!password) {
-        return res.json({ success: false, message: 'Password is required' });
-      }
-      const config = await readJsonFile(FILES.PAGE_PROTECTION, DEFAULT_PAGE_PROTECTION);
-      if (!config.passwordHash) {
-        return res.json({ success: false, message: 'No password set' });
-      }
-      const valid = await bcrypt.compare(password, config.passwordHash);
-      if (!valid) {
-        return res.json({ success: false, message: 'Invalid password' });
-      }
-      res.json({ success: true });
-    } catch (error: any) {
-      res.json({ success: false, message: error.message });
-    }
-  });
-
-  app.post('/api/page-protection/update', async (req, res) => {
-    try {
-      const { password, protectedPages } = req.body;
-      if (!password) {
-        return res.json({ success: false, message: 'Password is required' });
-      }
-      const config = await readJsonFile(FILES.PAGE_PROTECTION, DEFAULT_PAGE_PROTECTION);
-      if (!config.passwordHash) {
-        return res.json({ success: false, message: 'No password set' });
-      }
-      const valid = await bcrypt.compare(password, config.passwordHash);
-      if (!valid) {
-        return res.json({ success: false, message: 'Invalid password' });
-      }
-      config.protectedPages = protectedPages;
-      await writeJsonFile(FILES.PAGE_PROTECTION, config);
-      res.json({ success: true, message: 'Page protection settings updated' });
-    } catch (error: any) {
-      res.json({ success: false, message: error.message });
-    }
-  });
-
-  app.post('/api/page-protection/check-page', async (req, res) => {
-    try {
-      const { pagePath } = req.body;
-      const config = await readJsonFile(FILES.PAGE_PROTECTION, DEFAULT_PAGE_PROTECTION);
-      if (!config.passwordHash) {
-        return res.json({ success: true, isProtected: false });
-      }
-      const pageId = pagePath.replace(/^\//, '');
-      const isProtected = config.protectedPages?.[pageId] === true;
-      res.json({ success: true, isProtected });
-    } catch (error: any) {
       res.json({ success: false, message: error.message });
     }
   });

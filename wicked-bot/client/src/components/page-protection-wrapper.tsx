@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+
+const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 interface PageProtectionWrapperProps {
   pageId: string;
@@ -21,12 +22,11 @@ export default function PageProtectionWrapper({ pageId, children }: PageProtecti
   const [isVerifying, setIsVerifying] = useState(false);
 
   const { data, isLoading } = useQuery<{ success: boolean; isProtected: boolean }>({
-    queryKey: ["/api/page-protection/check-page", pageId],
+    queryKey: ["page-protection-check", pageId],
     queryFn: async () => {
-      const res = await fetch(`/api/page-protection/check-page`, {
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/check-page`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ pagePath: `/${pageId}` }),
       });
       return res.json();
@@ -50,7 +50,11 @@ export default function PageProtectionWrapper({ pageId, children }: PageProtecti
     if (!password) return;
     setIsVerifying(true);
     try {
-      const res = await apiRequest("POST", "/api/page-protection/verify", { password });
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
       const result = await res.json();
       if (result.success) {
         verifiedPages.add(pageId);

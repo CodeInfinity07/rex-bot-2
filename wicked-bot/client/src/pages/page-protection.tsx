@@ -9,7 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Lock, ShieldCheck, KeyRound, Save, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+
+const VPS_API_URL = import.meta.env.VITE_BOT_API_URL || "";
 
 interface PageInfo {
   id: string;
@@ -43,7 +45,11 @@ export default function PageProtection() {
   const [showNewConfirmPassword, setShowNewConfirmPassword] = useState(false);
 
   const { data: status, isLoading } = useQuery<ProtectionStatus>({
-    queryKey: ["/api/page-protection/status"],
+    queryKey: ["page-protection-status"],
+    queryFn: async () => {
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/status`);
+      return res.json();
+    },
   });
 
   useEffect(() => {
@@ -55,10 +61,17 @@ export default function PageProtection() {
 
   const setPasswordMutation = useMutation({
     mutationFn: async ({ password, confirmPassword }: { password: string; confirmPassword: string }) => {
-      return await apiRequest("POST", "/api/page-protection/set-password", { password, confirmPassword });
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/set-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, confirmPassword }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/page-protection/status"] });
+      queryClient.invalidateQueries({ queryKey: ["page-protection-status"] });
       setPassword("");
       setConfirmPassword("");
       setSessionPassword(password);
@@ -72,7 +85,14 @@ export default function PageProtection() {
 
   const verifyMutation = useMutation({
     mutationFn: async (password: string) => {
-      return await apiRequest("POST", "/api/page-protection/verify", { password });
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      return data;
     },
     onSuccess: () => {
       setSessionPassword(verifyPassword);
@@ -87,10 +107,17 @@ export default function PageProtection() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ password, protectedPages }: { password: string; protectedPages: Record<string, boolean> }) => {
-      return await apiRequest("POST", "/api/page-protection/update", { password, protectedPages });
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, protectedPages }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/page-protection/status"] });
+      queryClient.invalidateQueries({ queryKey: ["page-protection-status"] });
       setHasChanges(false);
       toast({ title: "Saved", description: "Page protection settings updated." });
     },
@@ -101,7 +128,14 @@ export default function PageProtection() {
 
   const changePasswordMutation = useMutation({
     mutationFn: async ({ currentPassword, newPassword, confirmPassword }: { currentPassword: string; newPassword: string; confirmPassword: string }) => {
-      return await apiRequest("POST", "/api/page-protection/change-password", { currentPassword, newPassword, confirmPassword });
+      const res = await fetch(`${VPS_API_URL}/api/page-protection/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      return data;
     },
     onSuccess: () => {
       setCurrentPassword("");
