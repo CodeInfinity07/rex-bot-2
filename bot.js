@@ -5397,6 +5397,12 @@ async function connectWebSocket() {
                             const ulData = jsonMessage?.PY?.OUL;
                             const c_mics = jsonMessage.PY.MSI;
                             club_name = jsonMessage?.PY?.NM;
+                            if (club_name && mysqlPool) {
+                                mysqlPool.query(
+                                    `UPDATE socket_status SET club_name = ? WHERE bot_uid = ?`,
+                                    [club_name, my_uid || 'unknown']
+                                ).catch(err => logger.error('Failed to update club_name in DB:', err.message));
+                            }
                             let m_index = 1;
                             c_mics.forEach(mc => {
                                 if (mc.VCU === "" && mc.IL === false) {
