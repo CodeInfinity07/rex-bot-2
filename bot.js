@@ -236,6 +236,8 @@ const ACTIVITY_LOGS_FILE = './data/activity_logs.json';
 const SONGS_DIR = './data/songs';
 const SONGS_METADATA_FILE = './data/songs_metadata.json';
 const SECRET_MESSAGES_FILE = './data/secret_messages.json';
+const FEATURE_TOGGLES_FILE = './data/feature_toggles.json';
+const FEATURES_PASSWORD = 'WICKED@123!@#';
 const MAX_SONGS = 10;
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const conversationHistory = new Map();
@@ -848,6 +850,66 @@ async function isOnHitlist(gc) {
     const hitlist = await loadHitlist();
     return hitlist.includes(String(gc));
 }
+
+// Feature toggle system
+const DEFAULT_FEATURE_TOGGLES = {
+    music: { enabled: true, label: 'Music', description: 'Song playback commands', commands: ['/song', '/play', '/pause', '/next', '/stop', '/rec'] },
+    dedications: { enabled: true, label: 'Dedications', description: 'Song dedication system', commands: ['/dedicate'] },
+    moderation: { enabled: true, label: 'Moderation', description: 'Unban command', commands: ['/ub'] },
+    hitlist: { enabled: true, label: 'Hitlist', description: 'Auto-kick on join', commands: [] },
+    blacklist: { enabled: true, label: 'Blacklist', description: 'Auto-ban on join', commands: [] },
+    info_stats: { enabled: true, label: 'Info & Stats', description: 'Player info and leaderboard commands', commands: ['/wtop', '/mtop', '/whois', '/mic', '/seen', '/member'] },
+    ai_voice: { enabled: true, label: 'AI / Voice', description: 'Voice AI mode', commands: ['/talk'] },
+    fun: { enabled: true, label: 'Fun', description: 'Secret messages and games', commands: ['/secret', '/read'] }
+};
+
+let featureToggles = JSON.parse(JSON.stringify(DEFAULT_FEATURE_TOGGLES));
+
+async function loadFeatureToggles() {
+    try {
+        const data = await fs.readFile(FEATURE_TOGGLES_FILE, 'utf8');
+        const saved = JSON.parse(data);
+        for (const key of Object.keys(DEFAULT_FEATURE_TOGGLES)) {
+            if (saved[key] !== undefined) {
+                featureToggles[key] = { ...DEFAULT_FEATURE_TOGGLES[key], enabled: saved[key].enabled };
+            }
+        }
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            await saveFeatureToggles();
+        }
+    }
+}
+
+async function saveFeatureToggles() {
+    try {
+        await fs.writeFile(FEATURE_TOGGLES_FILE, JSON.stringify(featureToggles, null, 2), 'utf8');
+    } catch (err) {
+        logger.error('Failed to save feature toggles:', err.message);
+    }
+}
+
+function isFeatureEnabled(featureKey) {
+    return featureToggles[featureKey]?.enabled !== false;
+}
+
+function getFeatureForCommand(cmd) {
+    const command = cmd.split(' ')[0].toLowerCase();
+    for (const [key, feature] of Object.entries(featureToggles)) {
+        if (feature.commands.includes(command)) {
+            return key;
+        }
+    }
+    return null;
+}
+
+function isCommandEnabled(cmd) {
+    const featureKey = getFeatureForCommand(cmd);
+    if (featureKey === null) return true;
+    return isFeatureEnabled(featureKey);
+}
+
+loadFeatureToggles();
 
 // Bot state management
 let botState = {
@@ -3290,6 +3352,55 @@ app.post('/api/jack/hitlist/save', async (req, res) => {
     }
 });
 
+// Feature toggle endpoints
+app.post('/api/jack/features/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === FEATURES_PASSWORD) {
+        res.json({ success: true });
+    } else {
+        res.json({ success: false, message: 'Invalid password' });
+    }
+});
+
+app.post('/api/jack/features/get', (req, res) => {
+    const { password } = req.body;
+    if (password !== FEATURES_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    res.json({ success: true, data: featureToggles });
+});
+
+app.post('/api/jack/features/update', async (req, res) => {
+    const { password, toggles } = req.body;
+    if (password !== FEATURES_PASSWORD) {
+        return res.json({ success: false, message: 'Invalid password' });
+    }
+    try {
+        for (const [key, value] of Object.entries(toggles)) {
+            if (featureToggles[key] !== undefined) {
+                featureToggles[key].enabled = !!value;
+            }
+        }
+        await saveFeatureToggles();
+        res.json({ success: true, data: featureToggles });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+app.get('/api/jack/features/status', (req, res) => {
+    const status = {};
+    for (const [key, feature] of Object.entries(featureToggles)) {
+        status[key] = {
+            label: feature.label,
+            description: feature.description,
+            enabled: feature.enabled,
+            commands: feature.commands
+        };
+    }
+    res.json({ success: true, data: status });
+});
+
 // Password-protected Chat endpoints with 7-day retention
 const CHAT_FILE = './chat.txt';
 
@@ -3924,6 +4035,9 @@ app.get('/api/jack/stream-state', authMiddleware, (req, res) => {
 // Song Dedication API endpoints (PUBLIC - no auth required)
 app.post('/api/jack/dedicate', (req, res) => {
     try {
+        if (!isFeatureEnabled('dedications')) {
+            return res.json({ success: false, message: 'Dedications feature is currently disabled' });
+        }
         const { name, songName } = req.body;
         
         if (!name || !songName || typeof name !== 'string' || typeof songName !== 'string') {
@@ -4975,16 +5089,16 @@ async function connectWebSocket() {
                             const { GC, NM, UID, SNUID, AV } = jsonMessage.PY;
                             checkLevel(UID);
 
-                            // Check blacklist first (ban immediately)
-                            if (await isBlacklisted(GC)) {
+                            // Check blacklist first (ban immediately) - only if blacklist feature enabled
+                            if (isFeatureEnabled('blacklist') && await isBlacklisted(GC)) {
                                 logger.info(`🚫 Blacklisted user detected: ${NM} (GC: ${GC})`);
                                 banUser(UID);
                                 sendMessage(`🚫 ${NM} is blacklisted and has been banned.`);
                                 return;
                             }
 
-                            // Check hitlist (kick immediately)
-                            if (await isOnHitlist(GC)) {
+                            // Check hitlist (kick immediately) - only if hitlist feature enabled
+                            if (isFeatureEnabled('hitlist') && await isOnHitlist(GC)) {
                                 logger.info(`👢 Hitlist user detected: ${NM} (GC: ${GC})`);
                                 kickUser(UID);
                                 sendMessage(`👢 ${NM} is on hitlist and has been kicked.`);
@@ -5212,8 +5326,14 @@ async function connectWebSocket() {
                             const timestamp = pktTime.toISOString().replace('T', ' ').substring(0, 19);
                             addMessage(`[${timestamp}] ${user_name}: ${message}`);
 
-                            // Bot commands handling
-                            if (String(message).startsWith("/mic")) {
+                            // Bot commands handling - check feature toggles (short-circuit if disabled)
+                            if (String(message).startsWith("/") && !isCommandEnabled(String(message))) {
+                                const featureKey = getFeatureForCommand(String(message));
+                                if (featureKey) {
+                                    sendMessage(`⚠️ ${featureToggles[featureKey].label} feature is currently disabled.`);
+                                }
+                            }
+                            else if (String(message).startsWith("/mic") && isCommandEnabled(String(message))) {
                                 let UID = jsonMessage.PY.UID;
                                 const user_mic_id = findPlayerID(UID);
                                 if (isMemberUID(UID)) {
@@ -5239,7 +5359,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/mtop")) {
+                            else if (String(message).startsWith("/mtop") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5274,7 +5394,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/wtop")) {
+                            else if (String(message).startsWith("/wtop") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5309,7 +5429,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/member")) {
+                            else if (String(message).startsWith("/member") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5371,7 +5491,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/seen")) {
+                            else if (String(message).startsWith("/seen") && isCommandEnabled(String(message))) {
                                 try {
                                     const player_id = String(message).replace(/^\/seen\s*/, '').trim().toUpperCase();
 
@@ -5430,7 +5550,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/whois")) {
+                            else if (String(message).startsWith("/whois") && isCommandEnabled(String(message))) {
                                 const player_id = String(message).replace(/^\/whois\s*/, '');
                                 const names = getNames(player_id.toUpperCase());
                                 sendMessage(names);
@@ -5512,7 +5632,7 @@ async function connectWebSocket() {
                             }
 
                             // Stream control: /play [song_index | youtube_url]
-                            else if (String(message).startsWith("/play")) {
+                            else if (String(message).startsWith("/play") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5588,7 +5708,7 @@ async function connectWebSocket() {
                             }
 
                             // Stream control: /pause
-                            else if (String(message).startsWith("/pause")) {
+                            else if (String(message).startsWith("/pause") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5611,7 +5731,7 @@ async function connectWebSocket() {
                             }
 
                             // YouTube song: /song <song_name>
-                            else if (String(message).startsWith("/song")) {
+                            else if (String(message).startsWith("/song") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5704,7 +5824,7 @@ async function connectWebSocket() {
                             }
 
                             // Stream control: /next
-                            else if (String(message).startsWith("/next")) {
+                            else if (String(message).startsWith("/next") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5759,7 +5879,7 @@ async function connectWebSocket() {
                             }
 
                             // Stream control: /stop
-                            else if (String(message).startsWith("/stop")) {
+                            else if (String(message).startsWith("/stop") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5782,7 +5902,7 @@ async function connectWebSocket() {
                             }
 
                             // Stream control: /rec (reconnect Agora with new credentials)
-                            else if (String(message).startsWith("/rec")) {
+                            else if (String(message).startsWith("/rec") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -5815,7 +5935,7 @@ async function connectWebSocket() {
                             }
 
                             // Voice AI control: /talk [on|off|message]
-                            else if (String(message).startsWith("/talk")) {
+                            else if (String(message).startsWith("/talk") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     try {
@@ -6003,7 +6123,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/ub")) {
+                            else if (String(message).startsWith("/ub") && isCommandEnabled(String(message))) {
                                 const user_id = findPlayerID(jsonMessage.PY.UID);
                                 if (botConfig.admins.includes(user_id)) {
                                     const args = String(message).trim().split(/\s+/);
@@ -6069,7 +6189,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).startsWith("/secret ")) {
+                            else if (String(message).startsWith("/secret ") && isCommandEnabled(String(message))) {
                                 try {
                                     const parts = String(message).substring(8).trim();
                                     const spaceIdx = parts.indexOf(' ');
@@ -6119,7 +6239,7 @@ async function connectWebSocket() {
                                 }
                             }
 
-                            else if (String(message).trim() === "/read") {
+                            else if (String(message).trim() === "/read" && isCommandEnabled("/read")) {
                                 try {
                                     const senderUID = jsonMessage.PY.UID;
                                     const gc = findPlayerID(senderUID);

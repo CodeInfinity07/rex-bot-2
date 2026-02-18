@@ -93,6 +93,8 @@ API endpoints `/api/jack/member-time/:uid` and `/api/jack/members-time` provide 
 
 **Configuration Files**: Text-based lists (comma-separated or line-separated) for admins, spam words, banned patterns, exemptions, and loyal members. Simple format allows manual editing if needed.
 
+**Feature Toggles**: `data/feature_toggles.json` stores enable/disable state for 8 feature groups: Music (/song, /play, /pause, /next, /stop, /rec), Dedications (/dedicate), Moderation (/ub), Hitlist (auto-kick on join), Blacklist (auto-ban on join), Info & Stats (/wtop, /mtop, /whois, /mic, /seen, /member), AI/Voice (/talk), Fun (/secret, /read). Each command handler checks `isCommandEnabled()` before executing. A universal short-circuit handler sends "feature disabled" messages. Secret admin page at `/features` (password: WICKED@123!@#) manages toggles. Public `/feature-status` page (inside dashboard) shows current states. API endpoints: POST `/api/jack/features/verify-password`, POST `/api/jack/features/get`, POST `/api/jack/features/update`, GET `/api/jack/features/status` (public, no auth).
+
 ### Authentication System
 
 **Dashboard Access Control**: The dashboard requires authentication to access. Two user types are supported:

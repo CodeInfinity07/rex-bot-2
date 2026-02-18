@@ -30,6 +30,8 @@ import BlacklistHitlist from "@/pages/blacklist";
 import StreamPage from "@/pages/stream";
 import DedicatePage from "@/pages/dedicate";
 import SecretMessages from "@/pages/secret-messages";
+import FeaturesAdmin from "@/pages/features-admin";
+import FeatureStatus from "@/pages/feature-status";
 
 function ProtectedRoutes() {
   return (
@@ -54,6 +56,7 @@ function ProtectedRoutes() {
       <Route path="/blacklist" component={BlacklistHitlist} />
       <Route path="/secret-messages" component={SecretMessages} />
       <Route path="/stream" component={StreamPage} />
+      <Route path="/feature-status" component={FeatureStatus} />
       <Route component={Overview} />
     </Switch>
   );
@@ -73,6 +76,10 @@ function AppContent() {
 
   if (location === "/dedicate") {
     return <DedicatePage />;
+  }
+
+  if (location === "/features") {
+    return <FeaturesAdmin />;
   }
 
   if (isLoading) {
