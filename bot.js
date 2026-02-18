@@ -2973,7 +2973,9 @@ app.post('/api/jack/update-token', async (req, res) => {
 
         logger.info('🔄 Token update requested');
 
-        // Validate token before saving
+        let newEP, newKEY;
+
+        // Validate token and extract EP/KEY
         try {
             const decoded = Buffer.from(token.trim(), 'base64').toString('utf-8');
             const outer = JSON.parse(decoded);
@@ -2982,6 +2984,8 @@ app.post('/api/jack/update-token', async (req, res) => {
             if (!pyData.EP || !pyData.KEY) {
                 throw new Error('Missing EP or KEY');
             }
+            newEP = pyData.EP;
+            newKEY = pyData.KEY;
             logger.info('✅ Token validated - contains EP and KEY');
         } catch (validationErr) {
             logger.error('❌ Token validation failed:', validationErr.message);
@@ -2995,26 +2999,49 @@ app.post('/api/jack/update-token', async (req, res) => {
         await fs.writeFile('token.txt', token, 'utf8');
         logger.info('✅ token.txt updated');
 
-        // Remove EP and KEY from .env file using mutex-protected function
-        await removeEnvCredentials(['EP', 'KEY']);
+        // Update EP and KEY in .env file
+        await updateEnvCredentials({ EP: newEP, KEY: newKEY });
+        logger.info('✅ EP and KEY updated in .env');
 
-        // Remove EP and KEY from runtime environment
-        delete process.env.EP;
-        delete process.env.KEY;
-        bot_ep = undefined;
-        bot_key = undefined;
-        logger.info('🗑️ EP and KEY removed from environment');
+        // Update in-memory credentials
+        bot_ep = newEP;
+        bot_key = newKEY;
+        process.env.EP = newEP;
+        process.env.KEY = newKEY;
+        logger.info('✅ In-memory credentials updated');
+
+        // Close existing WebSocket and reconnect with new credentials
+        if (wsIntervals.length > 0) {
+            logger.info(`🧹 Clearing ${wsIntervals.length} WebSocket intervals`);
+            wsIntervals.forEach(interval => clearInterval(interval));
+            wsIntervals = [];
+        }
+
+        authRequired = false;
+        authMessage = null;
+        inClub = false;
+
+        if (botState.ws) {
+            botState.ws.close();
+            botState.ws = null;
+        }
+
+        botState.connected = false;
+        botState.connecting = true;
+
+        setTimeout(async () => {
+            try {
+                await connectWebSocket();
+                logger.info('✅ WebSocket reconnected with new credentials');
+            } catch (err) {
+                logger.error('❌ Failed to reconnect WebSocket:', err.message);
+            }
+        }, 500);
 
         res.json({
             success: true,
-            message: 'Token updated, EP and KEY removed from .env. Restarting...'
+            message: 'Token updated, credentials saved to .env, WebSocket reconnecting...'
         });
-
-        // Restart the process after response is sent
-        setTimeout(() => {
-            logger.info('🔄 Executing process.exit(0) for PM2 restart');
-            process.exit(0);
-        }, 1000);
 
     } catch (error) {
         logger.error('❌ Error updating token:', error.message);
