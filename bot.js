@@ -3036,7 +3036,7 @@ app.post('/api/jack/update-token', async (req, res) => {
             } catch (err) {
                 logger.error('❌ Failed to reconnect WebSocket:', err.message);
             }
-        }, 500);
+        }, 200);
 
         res.json({
             success: true,
