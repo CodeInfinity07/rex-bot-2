@@ -854,10 +854,10 @@ async function isOnHitlist(gc) {
 const DEFAULT_FEATURE_TOGGLES = {
     music: { enabled: true, label: 'Music', description: 'Song playback commands', commands: ['/song', '/play', '/pause', '/next', '/stop', '/rec'] },
     dedications: { enabled: true, label: 'Dedications', description: 'Song dedication system', commands: ['/dedicate'] },
-    moderation: { enabled: true, label: 'Moderation', description: 'Unban command', commands: ['/ub'] },
+    moderation: { enabled: true, label: 'Moderation', description: 'Moderation commands', commands: [] },
     hitlist: { enabled: true, label: 'Hitlist', description: 'Auto-kick on join', commands: [] },
     blacklist: { enabled: true, label: 'Blacklist', description: 'Auto-ban on join', commands: [] },
-    info_stats: { enabled: true, label: 'Info & Stats', description: 'Player info and leaderboard commands', commands: ['/wtop', '/mtop', '/whois', '/mic', '/seen', '/member'] },
+    info_stats: { enabled: true, label: 'Info & Stats', description: 'Player info and leaderboard commands', commands: ['/wtop', '/mtop', '/whois', '/seen', '/member'] },
     ai_voice: { enabled: true, label: 'AI / Voice', description: 'Voice AI mode', commands: ['/talk'] },
     fun: { enabled: true, label: 'Fun', description: 'Secret messages and games', commands: ['/secret', '/read'] }
 };
