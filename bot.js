@@ -227,7 +227,6 @@ let allowInvites = false;
 let membersData = [];
 let bannedUserIds = [];
 let check_ban_list = false;
-const moveable_clubs = ['8937030'];
 const ICIC_USAGE_FILE = './icic_usage.json';
 const SETTINGS_FILE = './settings.json';
 const MEMBERS_FILE = './club_members.json';
@@ -6097,19 +6096,6 @@ async function connectWebSocket() {
                                     }
                                 } catch (err) {
                                     sendMessage("Please use the command in format '/lm [mic_number]'");
-                                }
-                            }
-
-                            else if (String(message).startsWith("/move")) {
-                                const user_id = findPlayerID(jsonMessage.PY.UID);
-                                const [command, move_code] = String(message).split(" ");
-                                if (botConfig.admins.includes(user_id) && moveable_clubs.includes(move_code)) {
-                                    exitclub();
-                                    joinClub(move_code);
-                                } else if (!moveable_clubs.includes(move_code)) {
-                                    sendMessage(`This club is not authorized for me to join.`);
-                                } else {
-                                    sendMessage(`You are not eligible to use this command.`);
                                 }
                             }
 
