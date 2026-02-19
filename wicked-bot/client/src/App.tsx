@@ -35,6 +35,7 @@ import FeatureStatus from "@/pages/feature-status";
 import PageProtection from "@/pages/page-protection";
 import Clubs from "@/pages/clubs";
 import PageProtectionWrapper from "@/components/page-protection-wrapper";
+import FeatureGate from "@/components/feature-gate";
 
 function WrappedPage({ pageId, Component }: { pageId: string; Component: React.ComponentType }) {
   return (
@@ -59,13 +60,14 @@ function ProtectedRoutes() {
       <Route path="/commands" component={Commands} />
       <Route path="/moderators">{() => <WrappedPage pageId="moderators" Component={Moderators} />}</Route>
       <Route path="/logs">{() => <WrappedPage pageId="logs" Component={ActivityLogs} />}</Route>
-      <Route path="/music">{() => <WrappedPage pageId="music" Component={Music} />}</Route>
+      <Route path="/music">{() => <WrappedPage pageId="music" Component={() => <FeatureGate featureKey="music"><Music /></FeatureGate>} />}</Route>
       <Route path="/spam-kicks">{() => <WrappedPage pageId="spam-kicks" Component={SpamKicks} />}</Route>
       <Route path="/admins">{() => <WrappedPage pageId="admins" Component={Admins} />}</Route>
       <Route path="/chat">{() => <WrappedPage pageId="chat" Component={Chat} />}</Route>
       <Route path="/kick-ban-logs">{() => <WrappedPage pageId="kick-ban-logs" Component={KickBanLogs} />}</Route>
-      <Route path="/blacklist">{() => <WrappedPage pageId="blacklist" Component={BlacklistHitlist} />}</Route>
-      <Route path="/secret-messages">{() => <WrappedPage pageId="secret-messages" Component={SecretMessages} />}</Route>
+      <Route path="/blacklist">{() => <WrappedPage pageId="blacklist" Component={() => <FeatureGate featureKey="blacklist"><BlacklistHitlist /></FeatureGate>} />}</Route>
+      <Route path="/secret-messages">{() => <WrappedPage pageId="secret-messages" Component={() => <FeatureGate featureKey="fun"><SecretMessages /></FeatureGate>} />}</Route>
+      <Route path="/dedicate">{() => <FeatureGate featureKey="dedications"><DedicatePage /></FeatureGate>}</Route>
       <Route path="/stream" component={StreamPage} />
       <Route path="/feature-status" component={FeatureStatus} />
       <Route path="/clubs" component={Clubs} />
@@ -85,10 +87,6 @@ function AppContent() {
         <StreamPage />
       </div>
     );
-  }
-
-  if (location === "/dedicate") {
-    return <DedicatePage />;
   }
 
   if (location === "/features") {
