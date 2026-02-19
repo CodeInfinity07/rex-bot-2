@@ -2116,12 +2116,10 @@ app.get('/api/jack/tone-templates/:toneName', async (req, res) => {
 app.get('/api/jack/openai-key', async (req, res) => {
     try {
         const key = process.env.OPENAI || '';
-        const masked = key ? key.slice(0, 7) + '...' + key.slice(-4) : '';
         res.json({
             success: true,
             data: {
-                hasKey: !!key,
-                maskedKey: masked
+                apiKey: key
             }
         });
     } catch (error) {
