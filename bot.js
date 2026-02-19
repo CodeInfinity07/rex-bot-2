@@ -192,10 +192,13 @@ app.use(express.static('public'));
 let mysqlPool;
 let inClub = false;
 let authRequired = false;
-let authSocket = null;
 let authMessage = null;
 let pendingVCRequest = null; // Pending VC credential fetch request
 let wsIntervals = []; // Track all WebSocket-related intervals for cleanup
+let isReconnecting = false;
+let reconnectTimer = null;
+let intentionalDisconnect = false;
+let currentSocketId = 0;
 let club_code = process.env.CLUB_CODE;
 let club_name = process.env.CLUB_NAME;
 let my_uid = process.env.BOT_UID;
@@ -1943,10 +1946,10 @@ app.post('/api/jack/authenticate', async (req, res) => {
             });
         }
 
-        if (!authSocket) {
+        if (!authRequired || !botState.ws || botState.ws.readyState !== WebSocket.OPEN) {
             return res.json({
                 success: false,
-                message: 'No authentication pending'
+                message: !authRequired ? 'No authentication pending' : 'WebSocket not connected'
             });
         }
 
@@ -1960,12 +1963,10 @@ app.post('/api/jack/authenticate', async (req, res) => {
             });
         }
 
-        // authSocket is the WebSocket instance
-        authSocket.send(authData);
+        botState.ws.send(authData);
         console.log(authData);
 
         authRequired = false;
-        authSocket = null;
         authMessage = null;
 
         logger.info('✅ Authentication credentials submitted');
@@ -2787,7 +2788,12 @@ app.post('/api/jack/regenerate-token', async (req, res) => {
     try {
         logger.info('🔄 Token regeneration requested - reconnecting WebSocket');
 
-        // Clear all WebSocket-related intervals
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        isReconnecting = false;
+
         if (wsIntervals.length > 0) {
             logger.info(`🧹 Clearing ${wsIntervals.length} WebSocket intervals`);
             wsIntervals.forEach(interval => clearInterval(interval));
@@ -2799,6 +2805,7 @@ app.post('/api/jack/regenerate-token', async (req, res) => {
         inClub = false;
 
         if (botState.ws) {
+            botState.ws.removeAllListeners();
             botState.ws.close();
             botState.ws = null;
         }
@@ -3008,11 +3015,19 @@ app.post('/api/jack/disconnect', async (req, res) => {
 
         logger.info(`🔌 Bot ${botConfig.botConfiguration?.botName} disconnection requested from dashboard`);
 
+        intentionalDisconnect = true;
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        isReconnecting = false;
+
         if (botState.ws) {
             exitclub();
 
             setTimeout(() => {
                 if (botState.ws) {
+                    botState.ws.removeAllListeners();
                     botState.ws.close();
                     botState.ws = null;
                 }
@@ -3756,15 +3771,41 @@ async function addMessage(line) {
 // ====================
 
 async function connectWebSocket() {
+    if (isReconnecting) {
+        logger.info('⏳ Reconnection already in progress, skipping duplicate attempt');
+        return false;
+    }
+    isReconnecting = true;
+    currentSocketId++;
+    const thisSocketId = currentSocketId;
+
     return new Promise((resolve, reject) => {
         try {
+            if (botState.ws) {
+                try {
+                    botState.ws.removeAllListeners();
+                    botState.ws.close();
+                } catch (e) {}
+                botState.ws = null;
+            }
+
             const url = 'ws://ws.ls.superkinglabs.com/ws';
             const ws = new WebSocket(url);
 
             botState.ws = ws;
 
             ws.on('open', async () => {
-                logger.info('🔌 WebSocket connection opened');
+                if (thisSocketId !== currentSocketId) {
+                    logger.info(`🚫 Stale socket ${thisSocketId} opened after newer ${currentSocketId}, closing`);
+                    ws.removeAllListeners();
+                    ws.close();
+                    isReconnecting = false;
+                    resolve(false);
+                    return;
+                }
+
+                isReconnecting = false;
+                logger.info(`🔌 WebSocket connection opened (socket #${thisSocketId})`);
                 await logSocketStatus('disconnected', 'Socket opened normally');
 
                 // Clear any existing intervals before creating new ones
@@ -3871,6 +3912,9 @@ async function connectWebSocket() {
             });
 
             ws.on('message', async (data) => {
+                if (thisSocketId !== currentSocketId) {
+                    return;
+                }
                 try {
                     const messageString = data.toString();
                     let jsonMessage;
@@ -3903,7 +3947,6 @@ async function connectWebSocket() {
                         console.log('\n🔐 Authentication Required');
                         logger.info('🔐 Authentication required - waiting for frontend input');
                         authRequired = true;
-                        authSocket = ws;
                         authMessage = messageString;
                     }
 
@@ -4817,34 +4860,53 @@ async function connectWebSocket() {
             });
 
             ws.on('error', async (err) => {
-                console.error('❌ WebSocket error:', err.message);
+                console.error(`❌ WebSocket error (socket #${thisSocketId}):`, err.message);
                 await logSocketStatus('error', err.message);
             });
 
             ws.on('close', async (code, reason) => {
-                console.log(`Socket closed at ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} - Code: ${code}, Reason: ${reason}`);
+                console.log(`Socket #${thisSocketId} closed at ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} - Code: ${code}, Reason: ${reason}`);
                 await logSocketStatus('disconnected', reason ? reason.toString() : 'Socket closed normally');
+
+                ws.removeAllListeners();
+
+                if (thisSocketId !== currentSocketId) {
+                    logger.info(`🚫 Stale socket #${thisSocketId} closed (current is #${currentSocketId}), ignoring`);
+                    return;
+                }
 
                 botState.connected = false;
                 botState.ws = null;
+                authRequired = false;
+                authMessage = null;
 
-                // Clear all WebSocket-related intervals
                 if (wsIntervals.length > 0) {
                     logger.info(`🧹 Clearing ${wsIntervals.length} WebSocket intervals on disconnect`);
                     wsIntervals.forEach(interval => clearInterval(interval));
                     wsIntervals = [];
                 }
 
-                // Auto-reconnect after 5 seconds
+                if (intentionalDisconnect) {
+                    logger.info('🛑 Intentional disconnect - skipping auto-reconnect');
+                    intentionalDisconnect = false;
+                    isReconnecting = false;
+                    return;
+                }
+
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+
                 logger.info('🔄 Attempting to reconnect in 5 seconds...');
-                setTimeout(async () => {
+                reconnectTimer = setTimeout(async () => {
+                    reconnectTimer = null;
                     try {
                         logger.info('🔌 Reconnecting WebSocket...');
                         await connectWebSocket();
                         logger.info('✅ WebSocket reconnected successfully');
                     } catch (err) {
                         logger.error('❌ Failed to reconnect WebSocket:', err.message);
-                        // Will try again on next close event or manual intervention
                     }
                 }, 5000);
             });
@@ -5243,6 +5305,7 @@ async function connectWebSocket() {
 
         } catch (error) {
             console.error('❌ WebSocket connection error:', error);
+            isReconnecting = false;
             reject(error);
         }
     });
