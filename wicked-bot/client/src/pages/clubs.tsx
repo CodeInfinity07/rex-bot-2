@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 
 interface ClubData {
   club_name: string;
+  club_code: string;
 }
 
 export default function Clubs() {
@@ -81,6 +82,9 @@ export default function Clubs() {
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate" title={club.club_name}>
                     {club.club_name}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Code: {club.club_code}
                   </p>
                 </div>
                 <Badge variant="outline" className="shrink-0 text-xs">
