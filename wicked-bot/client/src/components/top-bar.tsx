@@ -122,22 +122,6 @@ export function TopBar() {
           <SidebarTrigger data-testid="button-sidebar-toggle" />
         </div>
         <div className="flex items-center gap-3">
-          {isConnecting ? (
-            <div className="flex items-center gap-2 rounded-md bg-yellow-100 dark:bg-yellow-900/30 px-3 py-1.5" data-testid="status-indicator">
-              <Loader2 className="h-4 w-4 text-yellow-600 dark:text-yellow-400 animate-spin" />
-              <span className="text-sm font-medium text-yellow-700 dark:text-yellow-400">Connecting...</span>
-            </div>
-          ) : isConnected ? (
-            <div className="flex items-center gap-2 rounded-md bg-green-100 dark:bg-green-900/30 px-3 py-1.5" data-testid="status-indicator">
-              <Wifi className="h-4 w-4 text-green-600 dark:text-green-400" />
-              <span className="text-sm font-medium text-green-700 dark:text-green-400">Connected</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 rounded-md bg-red-100 dark:bg-red-900/30 px-3 py-1.5" data-testid="status-indicator">
-              <WifiOff className="h-4 w-4 text-red-600 dark:text-red-400" />
-              <span className="text-sm font-medium text-red-700 dark:text-red-400">Disconnected</span>
-            </div>
-          )}
           <Button
             variant="ghost"
             size="icon"
