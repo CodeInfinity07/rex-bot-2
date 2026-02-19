@@ -2089,6 +2089,18 @@ export function setupBotIntegration(app: Express) {
 
   // ==================== STREAM API (PUBLIC - NO AUTH) ====================
 
+  app.get('/api/jack/openai-key', async (req, res) => {
+    try {
+      const key = process.env.OPENAI_API_KEY || process.env.OPENAI || '';
+      res.json({
+        success: true,
+        key: key
+      });
+    } catch (error) {
+      res.json({ success: false, message: 'Failed to get OpenAI key' });
+    }
+  });
+
   // Get stream config (Agora credentials) - PUBLIC for stream listeners
   app.get('/api/jack/stream-config', async (req, res) => {
     try {
