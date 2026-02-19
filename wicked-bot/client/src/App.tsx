@@ -33,6 +33,7 @@ import SecretMessages from "@/pages/secret-messages";
 import FeaturesAdmin from "@/pages/features-admin";
 import FeatureStatus from "@/pages/feature-status";
 import PageProtection from "@/pages/page-protection";
+import Clubs from "@/pages/clubs";
 import PageProtectionWrapper from "@/components/page-protection-wrapper";
 
 function WrappedPage({ pageId, Component }: { pageId: string; Component: React.ComponentType }) {
@@ -67,6 +68,7 @@ function ProtectedRoutes() {
       <Route path="/secret-messages">{() => <WrappedPage pageId="secret-messages" Component={SecretMessages} />}</Route>
       <Route path="/stream" component={StreamPage} />
       <Route path="/feature-status" component={FeatureStatus} />
+      <Route path="/clubs" component={Clubs} />
       <Route path="/page-protection" component={PageProtection} />
       <Route component={Overview} />
     </Switch>
