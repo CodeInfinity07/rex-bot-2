@@ -2978,6 +2978,13 @@ app.post('/api/jack/connect', async (req, res) => {
 
         logger.info(`🤖 Bot ${botConfig.botConfiguration?.botName} connection requested from dashboard`);
 
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        isReconnecting = false;
+        intentionalDisconnect = false;
+
         await loadAllConfigurations();
 
         botState.connecting = true;
@@ -3494,6 +3501,13 @@ async function initializeBot() {
         }
 
         logger.info('🎯 Bot initialization complete');
+
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        isReconnecting = false;
+        intentionalDisconnect = false;
 
         connectWebSocket();
     } catch (error) {
