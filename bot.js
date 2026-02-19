@@ -2119,7 +2119,7 @@ app.get('/api/jack/openai-key', async (req, res) => {
         res.json({
             success: true,
             data: {
-                apiKey: key
+                key: key
             }
         });
     } catch (error) {
