@@ -2113,6 +2113,22 @@ app.get('/api/jack/tone-templates/:toneName', async (req, res) => {
     }
 });
 
+app.get('/api/jack/openai-key', async (req, res) => {
+    try {
+        const key = process.env.OPENAI || '';
+        const masked = key ? key.slice(0, 7) + '...' + key.slice(-4) : '';
+        res.json({
+            success: true,
+            data: {
+                hasKey: !!key,
+                maskedKey: masked
+            }
+        });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
 app.post('/api/jack/update-openai-key', async (req, res) => {
     try {
         const { apiKey } = req.body;
