@@ -705,7 +705,7 @@ function getMemberTimeStats(member: any): { weeklyHours: number; monthlyHours: n
 
 // OpenAI
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
+  apiKey: process.env.OPENAI || ''
 });
 
 // Conversation history for OpenAI

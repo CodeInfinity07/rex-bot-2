@@ -659,6 +659,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/jack/openai-key', (req, res) => {
+    const key = process.env.OPENAI || '';
+    res.json({ success: true, key });
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

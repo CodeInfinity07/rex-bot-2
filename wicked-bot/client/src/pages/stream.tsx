@@ -48,13 +48,13 @@ interface GPTAudioChunk {
 }
 
 const BOT_API_URL = import.meta.env.VITE_BOT_API_URL || '';
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY || '';
 
 export default function StreamPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [openaiKey, setOpenaiKey] = useState('');
   const [volume, setVolume] = useState(80);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -120,6 +120,13 @@ export default function StreamPage() {
       setBotName(botConfigData.data.botName);
     }
   }, [botConfigData]);
+
+  useEffect(() => {
+    fetch('/api/jack/openai-key')
+      .then(res => res.json())
+      .then(data => { if (data.success) setOpenaiKey(data.key); })
+      .catch(() => {});
+  }, []);
 
   const getOrCreateAudioContext = useCallback(async () => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
@@ -372,10 +379,10 @@ export default function StreamPage() {
   }, [getOrCreateAudioContext]);
 
   const connectGPT = useCallback(async () => {
-    if (!OPENAI_API_KEY) {
+    if (!openaiKey) {
       toast({
         title: "API Key Missing",
-        description: "Set VITE_OPENAI_API_KEY in your environment",
+        description: "Set OPENAI in your .env file",
         variant: "destructive"
       });
       return;
@@ -386,7 +393,7 @@ export default function StreamPage() {
       
       const ws = new WebSocket(url, [
         'realtime',
-        `openai-insecure-api-key.${OPENAI_API_KEY}`
+        `openai-insecure-api-key.${openaiKey}`
       ]);
 
       ws.onopen = () => {
@@ -1316,12 +1323,12 @@ export default function StreamPage() {
 
                 {!isTalkingEnabled && (
                   <CardContent>
-                    {!OPENAI_API_KEY ? (
+                    {!openaiKey ? (
                       <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                         <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-amber-700 dark:text-amber-400">API Key Required</p>
-                          <p className="text-xs text-muted-foreground">Set VITE_OPENAI_API_KEY to enable GPT voice</p>
+                          <p className="text-xs text-muted-foreground">Set OPENAI in .env to enable GPT voice</p>
                         </div>
                       </div>
                     ) : (
